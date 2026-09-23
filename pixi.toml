@@ -24,14 +24,22 @@ jupyterlab = ">=4.6.4,<5"
 nbformat = ">=5.11.1,<6"
 ipykernel = ">=7.3.0,<8"
 ipywidgets = ">=8.1.9,<9"
+
+#plotting
 altair = ">=6.2.2,<7"
 plotly = ">=7.1.0,<8"
 bokeh = ">=3.10.0,<4"
 pygal = ">=3.1.3,<4"
 jupyter_bokeh = ">=4.1.0,<5"
+yfinance = ">=1.7.0,<2"
+pandas_market_calendars = ">=5.4.0,<6"
+
+
+
 
 [pypi-dependencies]
 jupyterlab-execute-time = ">=3.3.0, <4"
+dukascopy-python = ">=4.0.1, <5"
 
-#plotting
+
 
