@@ -1,0 +1,21 @@
+[workspace]
+authors = ["Tony <fossilx@gmail.com>"]
+channels = ["conda-forge"]
+name = ".jupyter-pixi-v2"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+#core
+python = ">=3.14.7,<3.15"
+polars = ">=1.44.2,<2"
+pandas = ">=3.0.6,<4"
+pyarrow = ">=25.0.0,<26"
+duckdb = ">=1.5.5,<2"
+tzdata = ">=2026c,<2027a"
+python-dateutil = ">=2.9.0.post0,<3"
+pydantic = ">=2.13.5,<3"
+loguru = ">=0.7.3,<0.8"
+jupyterlab = ">=4.6.4,<5"
