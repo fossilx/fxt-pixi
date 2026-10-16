@@ -1,3 +1,49 @@
-# pixi environments
+
+#! ignore misc
+.tmp
+
+#ignore downloaded files
+downloads/
+datalake*
+
+
+#! RE: PROJECT-WIDE SECRETS
+.env
+.env.*
+!.env.example
+
+#! RE: PYTHON
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+
+
+#! RE: pixi environments
 .pixi/*
 !.pixi/config.toml
+
+#! RE: JUPYTER NOTEBOOKS + CONFIG
+### we ignore .jupyter-conf.py cuz it may contain the password hash for server
+jupyter/.jupyter-conf.py
+
+#to version control notebooks, consider: jupytext (jupytext.org)
+*.ipynb
+*.ipynb_checkpoints*
+
+#! RE: DATA 
+#  ignore contents of data dir for now, may change this to jupyter/data/datalake
+#  to allow version control of the datalake tools located in the root data dir
+jupyter/data/datalake
+
+#pixi-kernel
+#jupyterlab-pygments
+#jupyterlab-plotly
+#jupyterlab-execute-time
+#jupyterlab-widgets-jupyterlab-manager
+#jupterlab-myst

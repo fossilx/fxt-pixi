@@ -1,11 +1,48 @@
 [workspace]
 authors = ["Tony <fossilx@gmail.com>"]
 channels = ["conda-forge"]
-name = ".jupyter-pixi-v2"
+name = "jupyter-pixi"
 platforms = ["linux-64"]
 version = "0.1.0"
 
+#! dev tooling
+[feature.dev.dependencies]
+ruff = "*"
+pytest = "*"
+
+[environments]
+default = { solve-group = "default" }
+dev = { features = ["dev"], solve-group = "default" }
+
 [tasks]
+#jupyter script works by itself, but seems to have issues when run through pixi
+#so call directly for now -- ill figure it out later
+#the below correctly launches it, but it had issues for some reason
+#jupyter = { cmd = "./../scripts/jupyter.sh", cwd = "jupyter" }
+# --notebook-dir=path/to/notebook/dir  (if needed)
+# --config=path/to/config/file  (if needed)
+#jupyter = { cmd = "jupyter lab --no-browser --custom-css", cwd = "jupyter" }
+#jupyter = { cmd = "./scripts/jupyter-local.sh" }
+lint = "ruff check ."
+test = "pytest packages"
+tools = "python scripts/tools.py"
+
+
+[activation]
+#time zone support
+#env = { PYTHONTZPATH = "$PIXI_PROJECT_ROOT/.pixi/envs/default/share/zoneinfo" }
+env = { PYTHONTZPATH = "$CONDA_PREFIX/share/zoneinfo" }
+
+
+[pypi-dependencies]
+jupyterlab-execute-time = ">=3.3.0, <4"
+jupyterlab-myst = ">=2.7.0, <3"
+dukascopy-python = ">=4.0.1, <5"
+getch = ">=1.0, <2"
+#re: custom libs
+fxt = { path = "./packages/fxt", editable = true }
+
+
 
 [dependencies]
 #re: core
@@ -18,38 +55,46 @@ tzdata = ">=2026c,<2027a"
 python-dateutil = ">=2.9.0.post0,<3"
 pydantic = ">=2.13.5,<3"
 loguru = ">=0.7.3,<0.8"
-
-#re: jupyterlab
+#re: jupyter
 jupyterlab = ">=4.6.4,<5"
+pixi-kernel = ">=0.7.1,<0.8"
 nbformat = ">=5.11.1,<6"
 ipykernel = ">=7.3.0,<8"
 ipywidgets = ">=8.1.9,<9"
-
 #re: plotting
 altair = ">=6.2.2,<7"
 plotly = ">=7.1.0,<8"
 bokeh = ">=3.10.0,<4"
 pygal = ">=3.1.3,<4"
 jupyter_bokeh = ">=4.1.0,<5"
-
 #re: data
 yfinance = ">=1.7.0,<2"
 pandas_market_calendars = ">=5.4.0,<6"
-
 #re: terminal
 tqdm = ">=4.70.1,<5"
 textual = ">=8.2.8,<9"
 rich = ">=15.0.0,<16"
 inquirerpy = ">=0.3.4,<0.4"
+#misc
+rapidfuzz = ">=3.14.6,<4"
+pydantic-settings = ">=2.15.0,<3"
+click = ">=8.5.0,<9"
+questionary = ">=2.1.1,<3"
 
 
 
-[pypi-dependencies]
-#re: jupyterlab
-jupyterlab-execute-time = ">=3.3.0, <4"
-#re: data
-dukascopy-python = ">=4.0.1, <5"
-getch = ">=1.0, <2"
-#re: terminal
 
+#! ## KEPT FOR REFERENCE
+#[tasks]
+#examples:
+# Automatically prefixes 'my_package.' to whatever submodule name you pass
+#run-sub = "python -m fxt.$1"
+# This executes: python -m fxt.ticks
+#pixi run run-sub ticks
 
+# $@ includes all the extra args (this is default behavior)
+# if you use any positional args, like $1, it doesn't automatically include all
+#     the args if I understand correctly
+# These two do the exact same thing:
+#run-mod-implicit = "python -m"
+#run-mod-explicit = "python -m $@"

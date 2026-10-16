@@ -1,0 +1,29 @@
+#only used for library specific settings that use pyproject.toml
+
+[tool.ruff]
+indent-width = 4 #4 is default
+line-length = 120
+extend-exclude = [
+    "**/.pixi/**",
+    "**/tests/**",
+    "**/docs/**",
+    "**/examples/**",
+    "**/build/**",
+    "**/.git/**"
+]
+
+[tool.ruff.lint]
+#https://docs.astral.sh/ruff/settings/#lint_ignore
+ignore = [ 
+    "EXE001",  #Shebang is present but file is not executable
+    "EXE005",  #Shebang should be at the beginning of the file
+    "PLR2044", #Line with empty comment
+    "I001",    #Import block is un-sorted or un-formatted
+    "F401",    #Imported but unused
+    "D419",    #Docstring is empty
+    "DTZ001",  #`datetime.datetime()` called without a `tzinfo` argument
+    "DTZ005",  #`datetime.datetime.now()` called without a `tz` argument
+
+    "BLE001",  #this was flagged due to using a general Exception in catch block
+    "B010",    #stop it from yelling at me regarding using setattr()
+]

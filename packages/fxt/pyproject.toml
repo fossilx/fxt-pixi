@@ -1,0 +1,22 @@
+[project]
+name = "fxt"
+version = "0.1.0"
+authors = [{name = "Tony", email = "fossilx@gmail.com"}]
+requires-python = ">= 3.14"
+#add deps here!
+dependencies = []
+
+
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
+
+
+#[tool.pixi.workspace]
+#channels = ["conda-forge"]
+#platforms = ["linux-64"]
+
+#[tool.pixi.pypi-dependencies]
+#fxt = { path = ".", editable = true }
+
+#[tool.pixi.tasks]
