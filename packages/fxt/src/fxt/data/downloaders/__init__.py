@@ -8,12 +8,16 @@
 #!================================================================================(80)
 #! imports
 #!--------------------------------------------------------------------------------(80)
-import sys
+#registry first
+from ._registry import DownloaderRegistry
 
-#from .downloader import DukascopyDownloader  
-from ._base import BaseDownloader
+#rest
+from .base import BaseDownloader
+
+#to trigger registration
+from .fake import FakeDownloader
 from .dukascopy import DukascopyDownloader
-
+from .dukascopy import DukascopyDownloadError
 
 
 
@@ -22,5 +26,8 @@ from .dukascopy import DukascopyDownloader
 #!--------------------------------------------------------------------------------(80)
 __all__ = [
     'BaseDownloader',
-    'DukascopyDownloader'
+    'DownloaderRegistry',
+    'DukascopyDownloadError',
+    'DukascopyDownloader',
+    'FakeDownloader'
 ]

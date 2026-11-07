@@ -1,6 +1,9 @@
 
 #! ignore misc
 .tmp
+.vscode
+.old
+
 
 #ignore downloaded files
 downloads/

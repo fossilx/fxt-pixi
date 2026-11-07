@@ -25,5 +25,8 @@ ignore = [
     "DTZ005",  #`datetime.datetime.now()` called without a `tz` argument
 
     "BLE001",  #this was flagged due to using a general Exception in catch block
-    "B010",    #stop it from yelling at me regarding using setattr()
+    "B010",    #stop it from yelling at me regarding using setattr(),
+
+    "SIM102",  #combine if statements
+    "SIM103",
 ]

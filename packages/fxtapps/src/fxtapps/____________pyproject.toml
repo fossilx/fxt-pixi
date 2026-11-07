@@ -1,0 +1,19 @@
+[project]
+name = "apps"
+version = "0.1.0"
+authors = [{name = "Tony", email = "tmalch84@gmail.com"}]
+requires-python = ">= 3.14"
+#add deps here!
+dependencies = []
+
+
+[build-system]
+#use setup tools cuz hatchling requires use of src dir
+requires = ["setuptools>=61.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["apps", "apps.dataprep", "apps.derived"]
+
+[tool.setuptools.package-dir]
+apps = "."

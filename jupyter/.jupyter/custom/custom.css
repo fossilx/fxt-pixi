@@ -1,0 +1,42 @@
+
+hr.c {border-width: 2px; border-style: solid; border-color: #ccc; }
+hr.green { border-width: 2px; border-style: solid; border-color: #72b043; }
+hr.light-green { border-width: 2px; border-style: solid; border-color: #adc178; }
+hr.blue { border-width: 2px; border-style: solid; border-color: #58a6ff; }
+hr.yellow { border-width: 2px; border-style: solid; border-color: #ffd380; }
+hr.orange { border-width: 2px; border-style: solid; border-color: #ff8531; }
+hr.pink { border-width: 2px; border-style: solid; border-color: #fb6f92; }
+hr.red { border-width: 2px; border-style: solid; border-color: #f50538; }
+
+/*
+hr.green.thin { border-width: 1px; border-style: solid; border-color: #72b043; }
+hr.light-green.thin { border-width: 1px; border-style: solid; border-color: #adc178; }
+hr.blue.thin { border-width: 1px; border-style: solid; border-color: #58a6ff; }
+hr.yellow.thin { border-width: 1px; border-style: solid; border-color: #ffd380; }
+hr.orange.thin { border-width: 1px; border-style: solid; border-color: #ff8531; }
+hr.pink.thin { border-width: 1px; border-style: solid; border-color: #fb6f92; }
+hr.red.thin { border-width: 1px; border-style: solid; border-color: #f50538; }
+*/
+hr.thin { 
+    border-width: 1px !important;
+}
+hr.thick { 
+    border-width: 7px !important;
+}
+
+
+span.green, p.green { color: #72b043; }
+span.light-green, p.light-green { color: #adc178; }
+span.blue, p.blue { color: #58a6ff; }
+span.yellow, p.yellow { color: #ffd380; }
+span.orange, p.orange { color: #ff8531; }
+span.pink, p.pink { color: #fb6f92; }
+span.red, p.red { color: #f50538; }
+
+
+.god {
+	font-size: 100px;
+	font-family: sans-serif;
+	font-weight: bold;
+	color: hotpink;
+}

@@ -8,12 +8,15 @@
 #!================================================================================(80)
 #! imports
 #!--------------------------------------------------------------------------------(80)
-#import sys
+#registry first
+from ._registry import SourceRegistry
 
-#from .downloader import DukascopyDownloader  
-from ._base import BaseSource
+#rest
+from .base import BaseSource
+
+#to trigger registration
+from .fake import FakeSource
 from .dukascopy import DukascopySource
-
 
 
 
@@ -22,5 +25,7 @@ from .dukascopy import DukascopySource
 #!--------------------------------------------------------------------------------(80)
 __all__ = [
     'BaseSource',
-    'DukascopySource'
+    'DukascopySource',
+    'FakeSource',
+    'SourceRegistry'
 ]

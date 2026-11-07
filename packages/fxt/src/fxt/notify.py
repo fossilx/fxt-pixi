@@ -30,7 +30,7 @@ Two approaches based on: https://share.gemini.google/pPJPbtZhWYCN
 import requests
 
 #local
-from fxt.settings import get_secrets
+from .settings import get_env
 
 
 #!================================================================================(80)
@@ -41,8 +41,8 @@ def send_telegram_alert(message):
 
         This requires a telegram bot token and a user id to be set in the .env file.
     """
-    token = get_secrets().TELEGRAM_TOKEN.get_secret_value()
-    chat_id = get_secrets().TELEGRAM_USERID
+    token = get_env().get('TELEGRAM_TOKEN').get_secret_value()
+    chat_id = get_env().get('TELEGRAM_USERID')
 
     if(not token) or (not chat_id):
         raise RuntimeError("TELEGRAM_TOKEN or TELEGRAM_USERID not set in .env file. Cannot send alert.")
@@ -64,7 +64,17 @@ def send_telegram_alert(message):
 #! gogogogog
 #!--------------------------------------------------------------------------------(80) 
 if __name__ == '__main__':
-    # Trigger the alert
-    msg = "⚠️ *fxt.notify*: this message should appear in telegram."
-    print(f"Trying to send: {msg}")
+    from datetime import datetime, date, UTC
+    from rich import print
+    from rich.panel import Panel
+
+    now = datetime.now()
+    formatted = now.strftime("%b %d, %I:%M %p").replace(" 0", " ")
+    msg = f"⚠️ *fxt.notify* [[{formatted}]]: \n\nthis message should appear in telegram."
+
+    print(Panel(
+        msg,
+        title="[orchid2]notify-msg[/]", title_align="left"
+    ))
+
     send_telegram_alert(msg)

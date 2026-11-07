@@ -8,17 +8,77 @@
 #!================================================================================(80)
 #! imports
 #!--------------------------------------------------------------------------------(80)
-import sys
+#import registries so they are always available when fxt.data is used
+from .downloaders import DownloaderRegistry
+from .models import ModelRegistry
+from .sources import SourceRegistry
 
-#from .downloader import DukascopyDownloader  
-#from .parquet import ParquetDownloader
-#from .parquet import ParquetMetadataUtils
 
-from ._registry import DataRegistry
+#!================================================================================(80)
+#! ENV FILE SUPPORT
+#!--------------------------------------------------------------------------------(80)
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pathlib import Path
 
-#from .models import *
+class _DATAENV(BaseSettings):
+    """ Load settings/secrets from the sibling .env file.
 
-#to get them added to registry
+        aka the .env file must be in the same dir as this file
+    """
+    model_config = SettingsConfigDict(
+        #env_file=PATHS.ROOT / ".env",
+        extra="ignore",
+        env_file_encoding="utf-8",
+        env_file=Path(__file__).parent / ".env"
+    )
+
+    # #bring in specific keys from .env file
+    #DOWNLOADER_MANIFEST:str
+    #DOWNLOADER_MAX_RETRIES:int
+
+    PARQUET_STORE_METADATA_NAMESPACE:str
+
+    # TELEGRAM_TOKEN: SecretStr|None = None
+    # TELEGRAM_USERID: int|None = None
+    # GOD: str|None = None
+    
+    # #no defaults to ensure that values are specified in the env
+    # PARQUET_METADATA_JSON_KEY:str
+    # PARQUET_METADATA_TYPE_KEY:str
+    
+    # DOWNLOADER_MANIFEST:str
+    # DOWNLOADER_MAX_RETRIES:int
+#
+DATAENV = _DATAENV() # type: ignore[call-arg]
+
+from typing import Any
+
+def get_dataenv(key:str, default:Any|None = None) -> Any:
+    """ Within the data submodule...
+    
+        If no key is provided, returns entire env
+    """
+    #if(key is None):
+    #    return DATAENV.model_dump()
+    #else:
+    return getattr(DATAENV, key, default)
+#
+
+
+#!================================================================================(80)
+#! exports
+#!--------------------------------------------------------------------------------(80)
+# import re
+# def _safe(text):
+#     """ Returns a version of the provided string 
+#     """
+#     text = text.replace("/", "")
+#     text = re.sub(r"[^A-Za-z0-9._-]+", "_", text).strip("_")
+
+#     #print(f"text: {text}, safe: {name}")
+#     #sys.exit()
+#     return text
+# #
 
 
 
@@ -29,11 +89,9 @@ from ._registry import DataRegistry
 #! exports
 #!--------------------------------------------------------------------------------(80)
 __all__ = [
-##    'ParquetDownloader',
-#    'ParquetMetadataUtils',
-    'DataRegistry',
-    #'DukascopyDownloader',
-    
+    'DownloaderRegistry',
+    'ModelRegistry',
+    'SourceRegistry'    
 ]
 
 

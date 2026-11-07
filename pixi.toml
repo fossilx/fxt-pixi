@@ -25,7 +25,13 @@ dev = { features = ["dev"], solve-group = "default" }
 #jupyter = { cmd = "./scripts/jupyter-local.sh" }
 lint = "ruff check ."
 test = "pytest packages"
-tools = "python scripts/tools.py"
+#tools = "python scripts/tools.py"
+#con = "python apps/02-consolidation/consolidate.py"
+#lab = "jupyter lab --no-browser --custom-css --config=jupyter/jupyter-conf.py"
+lab = "python jupyter/.jupyter/launcher.py"
+#apps:
+dl = "python -m fxtapps.downloader.cli"
+
 
 
 [activation]
@@ -41,8 +47,8 @@ dukascopy-python = ">=4.0.1, <5"
 getch = ">=1.0, <2"
 #re: custom libs
 fxt = { path = "./packages/fxt", editable = true }
-
-
+#apps = { path = "./apps", editable = true }
+fxtapps = { path = "./packages/fxtapps", editable = true }
 
 [dependencies]
 #re: core
@@ -80,6 +86,10 @@ rapidfuzz = ">=3.14.6,<4"
 pydantic-settings = ">=2.15.0,<3"
 click = ">=8.5.0,<9"
 questionary = ">=2.1.1,<3"
+phx-class-registry = ">=5.2.2,<6"
+alive-progress = ">=3.3.0,<4"
+sqlite-utils = ">=4.2.1,<5"
+blake3 = ">=1.0.11,<2"
 
 
 

@@ -39,9 +39,17 @@ __PATH_TO_PROJECT="../"
 #do this once at the top-most level to avoid issues with ${BASE_SOURCE[]}
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 
-__JUPYTER_CMD_PREFIX_LOCAL="pixi run jupyter lab"
-__JUPYTER_CMD_PREFIX_GLOBAL="jupyter-lab"
-__JUPYTER_CMD_PREFIX=$__JUPYTER_CMD_PREFIX_LOCAL
+# __JUPYTER_CMD_PREFIX_LOCAL="pixi run jupyter lab"
+# __JUPYTER_CMD_PREFIX_GLOBAL="jupyter-lab"
+# __JUPYTER_CMD_PREFIX=$__JUPYTER_CMD_PREFIX_LOCAL
+
+
+__JUPYTER_CMD_PREFIX_LOCAL=(pixi run jupyter lab)
+__JUPYTER_CMD_PREFIX_GLOBAL=(jupyter-lab)
+__JUPYTER_CMD_PREFIX=("${__JUPYTER_CMD_PREFIX_LOCAL[@]}")
+
+CMD=("${__JUPYTER_CMD_PREFIX[@]}" "--no-browser")
+
 
 
 #general utils
@@ -112,7 +120,9 @@ function build_jupyter_cmd() {
     local root="${1:-}"
 
     # Build as an array to handle spaces and flags perfectly
-    CMD=("${__JUPYTER_CMD_PREFIX}" "--no-browser" "--custom-css")
+    #CMD=("${__JUPYTER_CMD_PREFIX}" "--no-browser" "--custom-css")
+    CMD=("${__JUPYTER_CMD_PREFIX[@]}" "--no-browser" "--custom-css")
+
 
     #handle: notebook dir
     if [[ -n "$root" ]]; then

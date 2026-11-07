@@ -9,60 +9,58 @@
 #! imports/exports
 #!--------------------------------------------------------------------------------(80)
 from __future__ import annotations
-from typing import TYPE_CHECKING
-
-import logging
-from datetime import datetime
+from typing import TYPE_CHECKING, Any, ClassVar
+from datetime import datetime, UTC
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 import polars as pl
 import dukascopy_python as dp
-#import dukascopy_python.instruments as dp_instruments
 
-#local 
+#fxt 
 from fxt.data.schemas import Ticks, Bars
-#from fxt.descriptors import cached_classproperty
-from fxt.data.sources import DukascopySource
+from fxt.data.models import DownloadedDataMeta
+from fxt.data.sources.base import BaseSource
+from fxt.data.sources.dukascopy import DukascopySource
 
 if TYPE_CHECKING:
-    #from fxt.data.schemas import Ticks
     from fxt.data.schemas import BaseIntervalSchema
+    from fxt.data.markets import BaseMarket
 
-from fxt.data.downloaders import BaseDownloader
+
+#local
+from ._registry import DownloaderRegistry
+from .base import BaseDownloader
+
 
 
 #!================================================================================(80)
 #! setup
 #!--------------------------------------------------------------------------------(80)
-from rich.logging import RichHandler
-logging.basicConfig(
-    level=logging.DEBUG,
-    handlers=[RichHandler(rich_tracebacks=True, markup=True)]
-)
+import logging
 logger = logging.getLogger(__name__)
 
-#from fxt import get_env
-#DEFAULT_MAX_RETRIES = get_env('DOWNLOADER_MAX_RETRIES')
-
-class DukascopyDownloadError(RuntimeError):
-    """ Raised when fetching ticks from the data source fails.
-    """
-#
 
 
 #!================================================================================(80)
-#! downloader: Dukascopy
+#! helpers
 #!--------------------------------------------------------------------------------(80)
 def _to_utc(value: datetime) -> datetime:
     """ Naive datetimes are assumed to be UTC; aware ones are converted to UTC.
     """
     if value.tzinfo is None:
-        return value.replace(tzinfo=datetime.UTC)
-    return value.astimezone(datetime.UTC)
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 #
 
-from typing import ClassVar
+#!================================================================================(80)
+#! main
+#!--------------------------------------------------------------------------------(80)
+class DukascopyDownloadError(RuntimeError):
+    """ Raised when fetching ticks from the data source fails.
+    """
+#
 
+@DownloaderRegistry.register('dukascopy') #id must match the one in DukascopySource
 class DukascopyDownloader(BaseDownloader[DukascopySource]):
     """ Downloads data from Dukascopy via `dukascopy_python`.
     """
@@ -81,7 +79,7 @@ class DukascopyDownloader(BaseDownloader[DukascopySource]):
     #~ fields
     #~----------------------------------------------------------------------(70)
     #! not needed with pydantic v2, but kept to be explicit
-    #source:BaseModel = DukascopySource()
+    source:BaseSource = DukascopySource()
 
     #! new fields specific to this downloader
     max_retries: int = Field(
@@ -89,6 +87,15 @@ class DukascopyDownloader(BaseDownloader[DukascopySource]):
         description="Max fetch attempts before raising.",
     )
 
+
+    def model_post_init(self, context: Any) -> None:
+        """ this works if needed
+        """
+        #this works, but trying to move it to app
+        self.source.disable_dukascopy_python_logging()
+        
+        return super().model_post_init(context)
+    #
 
     #~======================================================================(70)
     #~ download
@@ -100,12 +107,15 @@ class DukascopyDownloader(BaseDownloader[DukascopySource]):
             start: datetime,
             end: datetime,
             dry: bool=False
-        ) -> tuple[pl.DataFrame, dict]:
+        ) -> tuple[pl.DataFrame, DownloadedDataMeta]:
         """ Download data for [start, end). Returns (dataframe, meta).
         """
         #! check: symbol/interval
         symbol = self.get_symbol(symbol)
         interval = self.get_interval(interval)
+        market = self.which_market(symbol=symbol)
+        #print(f"symbol: {symbol} || markst: {market}")
+        #sys.exit()
 
         #! check: start/end
         start, end = _to_utc(start), _to_utc(end)
@@ -115,7 +125,7 @@ class DukascopyDownloader(BaseDownloader[DukascopySource]):
         #------------------------------------------------------------(60)
 
         #! determine schema-type (used for meta, schemas, etc)
-        interval_schema:BaseIntervalSchema = None
+        interval_schema:type[BaseIntervalSchema] = None
         if interval == self.source.TICK:
             interval_schema = Ticks
         else:
@@ -125,7 +135,7 @@ class DukascopyDownloader(BaseDownloader[DukascopySource]):
         #
         
         #! handle meta
-        def wrap_meta(df: pl.DataFrame, status: str) -> tuple[pl.DataFrame, dict]:
+        def wrap_meta(df: pl.DataFrame, status: str) -> tuple[pl.DataFrame, DownloadedDataMeta]:
             """ Every return path goes through here so `meta` always has the same shape.
             """
             meta = interval_schema.meta(
@@ -135,7 +145,9 @@ class DukascopyDownloader(BaseDownloader[DukascopySource]):
                 interval=interval,
                 start=start,
                 end=end,
-                #status isnt in the meta model, but it should automatically be added
+                market=market,
+
+                #status isnt in the meta model, but it should be saved to "other"
                 #testing it here
                 status=status
             )
@@ -214,36 +226,88 @@ if(__name__ == "__main__"):
     import sys
     from rich import print
 
-    def test_basic():
+    def test_basic(n=5):
         duka = DukascopyDownloader()
-
         print()
-        print("[bold cyan]* intervals[/]")
-        print(duka.INTERVALS)
-        print()
-        #print("[bold cyan]* symbols[/]")
-        #print(f" - # symbols: {len(DukascopyDownloader.SYMBOLS)}")
-        #print(f" - first few: {DukascopyDownloader.SYMBOLS[:5]}")
+        print("# [bold orchid2]test_basic()[/]")
+        print("[bold cyan]  * intervals[/]")
+        print(f"    - # intervals: {len(duka.INTERVALS)}")
+        print(f"    - first {n}: {duka.INTERVALS[:n]}")
+        #print(duka.INTERVALS)
+        print("[bold cyan]  * symbols[/]")
+        print(f"    - # symbols: {len(duka.SYMBOLS)}")
+        print(f"    - first {n}: {duka.SYMBOLS[:n]}")
     #
     test_basic()
 
+
     def test_downloader():
+        print()
+        print("# [bold orchid2]test_downloader()[/]")
+        
         symbol = "GBP/USD"
-        interval = "TICKS"
+        interval = "TICK"
         start = datetime(2024,1,1)
-        end = datetime(2024,1,5)
+        end = datetime(2024,1,2)
 
         #!create downloader
         duka = DukascopyDownloader()
+        duka.source.disable_dukascopy_python_logging()
 
         #! dldldldldl
-        #df, meta = duka.download(symbol, interval, start=start, end=end)
+        df, meta = duka.download(symbol, interval, start=start, end=end)
 
-        print("[bold green]* test_downloader()[/]")
-        print(" - df:")
-        #print(df.head())
+        print("[bold cyan]  * resulting df[/]")
+        print(f"     - # records: {len(df)}")
+        print("      - df.head():")
+        print(df.head())
 
-        #print(f" - df meta:\n{meta}")
+        import textwrap
+
+        print("[bold cyan]  * resulting meta[/]")
+        print(f"     - as obj:\n       {meta}")
+        print("     - as json:")
+        print(textwrap.indent(meta.model_dump_json(indent=4), " "*7))
+
+        from fxt.term import hr
+
+        print(hr())
+
+        #meta_dict = meta.model_dump()
+        newmeta = meta
+        newmeta.market = "spiffymkt"
+
+        print("[bold cyan]  * meta tests[/]")
+        print("     - with changed market:")
+        print(textwrap.indent(newmeta.model_dump_json(indent=4), " "*7))
+        newmeta_json = newmeta.model_dump_json()
+        print("     - as str:")
+        print(f"       {newmeta_json}")
+
+        print("     - back into meta obj:")
+        backtomodel = DownloadedDataMeta.model_validate_json(newmeta_json)
+        print(textwrap.indent(backtomodel.model_dump_json(indent=4), " "*7))
+        print("     - as obj:")
+        print(backtomodel)
+
+
+        print("     - now change it back to forex:")
+        backtomodel.market = "forex"
+        print(backtomodel)
+        
+
+
+
+        
+
+
+
+
+
+        
+
+
+
         #print(f" - df meta json:\n{meta.model_dump_json()}")
     #
 
