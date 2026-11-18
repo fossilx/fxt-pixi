@@ -9,7 +9,9 @@ ___*
 
 
 #ignore downloaded files
-data/*
+data/*/
+#data/dataprep/
+#data/dataprep/
 
 
 #! RE: PROJECT-WIDE SECRETS
