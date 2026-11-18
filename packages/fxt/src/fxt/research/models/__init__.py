@@ -16,10 +16,12 @@ from ._registry import registry
 from .config import INPUT_SUFFIX, ConfigHash, ConfigRuleError, StageConfig, input_hashes_of
 from .meta import FileRef, ResearchMeta, SymbolKey
 from .events import CusumEventsConfig, EventsMeta, SamplerConfig
+from .touches import TouchesMeta, TripleBarrierTouchConfig
 
 __all__ = [
     "registry",
     "INPUT_SUFFIX", "ConfigHash", "ConfigRuleError", "StageConfig", "input_hashes_of",
     "FileRef", "ResearchMeta", "SymbolKey",
     "CusumEventsConfig", "EventsMeta", "SamplerConfig",
+    "TouchesMeta", "TripleBarrierTouchConfig",
 ]

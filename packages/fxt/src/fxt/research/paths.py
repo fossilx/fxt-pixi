@@ -4,11 +4,12 @@ paths
 Path builder for data/research: tables whose contents depend on a config.
 
     data/research/<stage>/config=<hash>/source=…/market=…/symbol=…/year=…/SYMBOL-YYYY.parquet
+    (stages: features, events, touches, labels)
     data/research/weights/config=<hash>/source=…/market=…/symbol=…/SYMBOL.parquet
 
 - `config=` comes first, so everything one config produced is one folder.
 - Yearly stages are partitioned by the year of each row's key time
-  (bar_time for features, t0 for events and labels).
+  (bar_time for features, t0 for events, touches and labels).
 - Weights aren't split by year: concurrency spans year boundaries.
 
 Kept separate from fxt.lake.Lake on purpose: the lake never holds anything
@@ -40,6 +41,7 @@ class Stage(StrEnum):
     """ Research table types (top-level folders under data/research). """
     FEATURES = "features"
     EVENTS = "events"
+    TOUCHES = "touches"      # side-agnostic triple-barrier touch pass (labels step 1)
     LABELS = "labels"
     WEIGHTS = "weights"
 

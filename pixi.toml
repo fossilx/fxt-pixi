@@ -49,6 +49,10 @@ reader = "python -m fxtapps.dataprep.reader.cli"
 cmd = "python -m fxtapps.research.configs.cli"
 description = "(research) what each config hash in data/research means; run with: pixi run research-configs [HASH] [--stage events] [--json]"
 
+[tasks.touches]
+cmd = "python -m fxtapps.research.touches.cli"
+description = "(research) triple-barrier touch pass on events; run with: pixi run touches EURJPY [--k 1 --n 48] [--sweep 0.5x24,1x48] [--dry-run]"
+
 [tasks.events-cusum]
 cmd = "python -m fxtapps.research.events_cusum.cli"
 description = "(research) CUSUM events from 1HOUR bars; run with: pixi run events-cusum EURJPY [--h 3] [--sweep 2,3,4] [--dry-run]"
