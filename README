@@ -1,3 +1,93 @@
 
 repo: https://github.com/fossilx/fxt-pixi/tree/main
 
+---
+
+# paths:
+
+* `data`: main data directory
+```
+data
+    /dataprep
+        /downloads          downloaded files, most likely daily
+        /consolidated       temp location for yearly data files
+
+    /lake
+        /raw                highest resolution data available from src
+        /derived            bars
+    
+    /research
+
+```
+  - `data/dataprep`
+  - `data/lake`
+* `/packages`:
+  - `fxt`: main shared code library
+    * source: `packages/fxt/src/fxt`
+    * tests:  `packages/fxt/tests`
+  - `fxtapps`: 
+    * source: `packages/fxtapps/src/fxtapps`
+    * tests:  `packages/fxtapps/tests`
+
+
+
+
+
+---
+---
+
+# stages
+
+The core structure of this is based on a common set of stages that are used
+throughout the project. The stages so far:
+
+### 1: **dataprep**
+> involves the aquisition of data from a specific source, and preparing it 
+> for use within the library.
+
+- all data is stored in `data/dataprep`
+- the two stages/apps here both produce a manifest (which is an sqlite db)
+- once data is consolidated into yearly files, both the parquet file and 
+  manifest for each complete year is transferred to the **datalake**. these
+  datasets are meant to act as the **source of truth**, and are not meant to 
+  ever be modified.
+
+- apps: within `fxtapps.dataprep`...
+
+  * `downloader`: downloads daily data from source
+     > `pixi run dl`
+
+  * `consolidator`: converts downloaded files into yearly files
+     > `pixi run con`
+
+
+
+
+### 2: derived ~ bars
+This stage takes raw data (which hopefully means tick data), and creates OHLC
+versions of the bid/ask/mid. It starts by going:
+
+    raw -> 1MIN
+
+Then goes...
+
+    1MIN -> others (as of now, only includes 1HOUR bars)
+
+
+- apps: within `fxtapps.derived`...
+
+  * `bars_1min`: `[terminal-ui]` app that lets you browse the datalake for
+    sets with `raw` (usually ticky) data with which to generate `1MIN` bars.
+     > `pixi run bars min`
+
+  * `bars_1hour`: `[terminal-ui]` app that lets you browse the datalake for
+    sets with `1MIN` bars with which to generate `1HOUR` bars.
+     > `pixi run bars hour`
+
+
+
+### 3: derived ~ sampler events
+
+
+
+
