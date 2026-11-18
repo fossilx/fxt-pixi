@@ -125,10 +125,15 @@ class ResearchMeta(VersionedModel):
         checks: tuple[CheckRecord, ...] = (),
         code_version: str | None = None,
         created_at: datetime | None = None,
+        **fields: Any,
     ) -> Self:
-        """ Build the meta for one file produced by `config`. """
+        """ Build the meta for one file produced by `config`.
+            `fields`: values for fields a stage subclass adds.
+        """
         payload = config.payload()
-        extra: dict[str, Any] = {} if created_at is None else {"created_at": created_at}
+        extra: dict[str, Any] = dict(fields)
+        if created_at is not None:
+            extra["created_at"] = created_at
         return cls(
             stage=config.get_stage(),
             config_hash=content_hash(config.get_id(), payload),

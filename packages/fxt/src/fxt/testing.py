@@ -23,7 +23,7 @@ import polars as pl
 
 from fxt.lake.paths import Lake, PartitionKey
 
-__all__ = ["BASE_KEY", "RAW_TYPEID", "LakeBuilder", "make_ticks", "quiet"]
+__all__ = ["BASE_KEY", "RAW_TYPEID", "LakeBuilder", "build_stamped_bars", "make_ticks", "quiet"]
 
 BASE_KEY = PartitionKey(source="dukascopy", market="forex", symbol="EURGBP",
                         interval="TICK", year=2014)
@@ -104,4 +104,36 @@ class LakeBuilder:
         else:
             data.write_parquet(p)
         return p
+#
+
+
+def build_stamped_bars(lb: LakeBuilder, ticks: pl.DataFrame,
+                       intervals: tuple[str, ...] = ("1MIN", "1HOUR")) -> dict[int, dict[str, Path]]:
+    """ Split `ticks` by UTC year, put each year as an enveloped raw file, then
+        build and stamp each bar interval from the previous one (TICK -> 1MIN -> 1HOUR),
+        the way the bar CLIs do. Returns {year: {interval: path}}.
+    """
+    from fxt.core.checks import CheckReport                      # lazy: needs the project settings
+    from fxt.lake.derived.bars import build_bars
+    from fxt.lake.derived.meta import remember_build, stamp_bars
+    from fxt.lake.jobs import JobContext
+
+    out: dict[int, dict[str, Path]] = {}
+    years = ticks.get_column("dtime").dt.year().unique().sort().to_list()
+    for year in years:
+        part = ticks.filter(pl.col("dtime").dt.year() == year)
+        key = lb.key("TICK", year=year)
+        paths = {"TICK": lb.put(key, part, envelope=RAW_TYPEID)}
+        prev = key
+        for interval in intervals:
+            src, dst = lb.path(prev), lb.path(prev.replace(interval=interval))
+            ctx = JobContext(key=prev, src=src, dst=dst)
+            remember_build(ctx, build_bars(src, dst, source_interval=prev.interval,
+                                           interval=interval, log=quiet))
+            stamp_bars(ctx, CheckReport(), lake_root=lb.lake.root)
+            ctx.close()
+            paths[interval] = dst
+            prev = prev.replace(interval=interval)
+        out[year] = paths
+    return out
 #

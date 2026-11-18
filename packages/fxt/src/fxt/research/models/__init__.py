@@ -15,9 +15,11 @@ file can only be read back if its model is registered. Stage-specific models
 from ._registry import registry
 from .config import INPUT_SUFFIX, ConfigHash, ConfigRuleError, StageConfig, input_hashes_of
 from .meta import FileRef, ResearchMeta, SymbolKey
+from .events import CusumEventsConfig, EventsMeta
 
 __all__ = [
     "registry",
     "INPUT_SUFFIX", "ConfigHash", "ConfigRuleError", "StageConfig", "input_hashes_of",
     "FileRef", "ResearchMeta", "SymbolKey",
+    "CusumEventsConfig", "EventsMeta",
 ]
