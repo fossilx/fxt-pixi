@@ -1,7 +1,8 @@
 '''
 config
 
-StageConfig: base for every research stage's config (events, labels, ...).
+HashedConfig: the hash rules + hash. StageConfig: research stage configs (events, labels, ...).
+HarnessConfig: model / sizer / backtest / cv configs (no research files).
 
     @registry.register("CusumEventsConfig", 1)
     class CusumEventsConfig(StageConfig):
@@ -46,7 +47,8 @@ from fxt.core.hashing import HASH_PATTERN, content_hash
 from fxt.core.versioned import VersionedModel
 from fxt.research.paths import Stage
 
-__all__ = ["INPUT_SUFFIX", "ConfigHash", "ConfigRuleError", "StageConfig", "input_hashes_of"]
+__all__ = ["HARNESS_KINDS", "INPUT_SUFFIX", "ConfigHash", "ConfigRuleError", "HarnessConfig", "HashedConfig",
+           "StageConfig", "input_hashes_of"]
 
 ConfigHash = Annotated[str, StringConstraints(pattern=HASH_PATTERN)]
 INPUT_SUFFIX = "_hash"
@@ -105,11 +107,12 @@ def input_hashes_of(payload: dict[str, Any]) -> dict[str, str]:
 #!================================================================================(80)
 #! main
 #!--------------------------------------------------------------------------------(80)
-class StageConfig(VersionedModel):
-    """ Unregistered base for stage configs. Subclasses set `stage` and register. """
+class HashedConfig(VersionedModel):
+    """ Unregistered base for every hashed config: the hash rules and the hash itself.
+        Research stage configs subclass StageConfig; configs that write no research
+        files (model, sizer, backtest, cv) subclass HarnessConfig.
+    """
     model_config = ConfigDict(frozen=True, extra="forbid")
-
-    stage: ClassVar[Stage]
 
     @classmethod
     def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
@@ -124,11 +127,9 @@ class StageConfig(VersionedModel):
     #
 
     @classmethod
-    def get_stage(cls) -> Stage:
-        stage = cls.__dict__.get("stage") or getattr(cls, "stage", None)
-        if not isinstance(stage, Stage):
-            raise ConfigRuleError(f"{cls.__qualname__} doesn't set `stage = Stage.<...>`")
-        return stage
+    def config_kind(cls) -> str:
+        """ What the config is for: a research stage, or model / sizer / backtest / cv. """
+        raise NotImplementedError
 
     def payload(self) -> dict[str, Any]:
         """ What gets hashed and stored: the JSON-mode dump (excluded fields dropped). """
@@ -141,4 +142,41 @@ class StageConfig(VersionedModel):
     def input_hashes(self) -> dict[str, str]:
         """ {role: hash} for every upstream input, e.g. {"events": "3f9a1c0d2e4b"}. """
         return input_hashes_of(self.payload())
+#
+
+
+class StageConfig(HashedConfig):
+    """ Unregistered base for stage configs. Subclasses set `stage` and register. """
+
+    stage: ClassVar[Stage]
+
+    @classmethod
+    def get_stage(cls) -> Stage:
+        stage = cls.__dict__.get("stage") or getattr(cls, "stage", None)
+        if not isinstance(stage, Stage):
+            raise ConfigRuleError(f"{cls.__qualname__} doesn't set `stage = Stage.<...>`")
+        return stage
+
+    @classmethod
+    def config_kind(cls) -> str:
+        return str(cls.get_stage())
+#
+
+
+HARNESS_KINDS = ("model", "sizer", "backtest", "cv")
+
+
+class HarnessConfig(HashedConfig):
+    """ Unregistered base for configs used by the evaluation harness (no research files).
+        Subclasses set `kind` (one of HARNESS_KINDS) and register.
+    """
+
+    kind: ClassVar[str]
+
+    @classmethod
+    def config_kind(cls) -> str:
+        kind = getattr(cls, "kind", None)
+        if kind not in HARNESS_KINDS:
+            raise ConfigRuleError(f"{cls.__qualname__}.kind must be one of {HARNESS_KINDS}, got {kind!r}")
+        return kind
 #-

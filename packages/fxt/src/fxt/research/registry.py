@@ -40,7 +40,7 @@ from typing import Any, Literal, Self
 
 import polars as pl
 
-from .models import StageConfig
+from .models import HashedConfig
 from .paths import Research, Stage
 
 __all__ = ["LockboxAlreadyUsed", "Registry", "SCHEMA_VERSION", "SyncReport"]
@@ -168,10 +168,10 @@ class Registry:
             self.con.execute("INSERT OR IGNORE INTO config_inputs VALUES (?, ?, ?)", (config_hash, role, h))
         return cur.rowcount > 0
 
-    def register_config(self, config: StageConfig) -> str:
+    def register_config(self, config: HashedConfig) -> str:
         """ Record a config (e.g. a model or backtest config that writes no research file). """
         h = config.config_hash()
-        self._upsert_config(h, str(config.get_stage()), config.get_id(), config.payload(), config.input_hashes())
+        self._upsert_config(h, config.config_kind(), config.get_id(), config.payload(), config.input_hashes())
         return h
 
     def config(self, config_hash: str) -> dict[str, Any] | None:

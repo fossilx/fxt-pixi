@@ -45,6 +45,10 @@ reader = "python -m fxtapps.dataprep.reader.cli"
 #bars-1h
 
 #{ cmd = "pytest -m slow -s", cwd = "packages/fxt" }
+[tasks.evaluate]
+cmd = "python -m fxtapps.research.evaluate.cli"
+description = "(research) evaluate a strategy (walk-forward CV + backtest), recorded as a trial; run with: pixi run evaluate EURJPY [--model logistic] [--sizer threshold --threshold 0.45] [--side fade]"
+
 [tasks.registry]
 cmd = "python -m fxtapps.research.registry.cli"
 description = "(research) experiment registry (data/experiments.db); run with: pixi run registry sync|show|runs [STRATEGY]|run RUN_ID"

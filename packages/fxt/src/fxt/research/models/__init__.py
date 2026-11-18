@@ -13,21 +13,30 @@ file can only be read back if its model is registered. Stage-specific models
 #
 #=================================================================================(80)
 from ._registry import registry
-from .config import INPUT_SUFFIX, ConfigHash, ConfigRuleError, StageConfig, input_hashes_of
+from .config import (
+    HARNESS_KINDS, INPUT_SUFFIX, ConfigHash, ConfigRuleError, HarnessConfig, HashedConfig, StageConfig,
+    input_hashes_of,
+)
 from .meta import FileRef, ResearchMeta, SymbolKey
 from .events import CusumEventsConfig, EventsMeta, SamplerConfig
 from .touches import TouchesMeta, TripleBarrierTouchConfig
 from .labels import SIDE_RULES, LabelsMeta, SideLabelsConfig
 from .weights import SampleWeightsConfig, WeightsMeta
 from .features import BarFeaturesConfig, FeaturesMeta
+from .harness import (
+    BacktestConfig, LogisticModelConfig, ModelConfig, SizerConfig, TakeAllModelConfig, WalkForwardConfig,
+)
 
 __all__ = [
     "registry",
-    "INPUT_SUFFIX", "ConfigHash", "ConfigRuleError", "StageConfig", "input_hashes_of",
+    "HARNESS_KINDS", "INPUT_SUFFIX", "ConfigHash", "ConfigRuleError", "HarnessConfig", "HashedConfig",
+    "StageConfig", "input_hashes_of",
     "FileRef", "ResearchMeta", "SymbolKey",
     "CusumEventsConfig", "EventsMeta", "SamplerConfig",
     "TouchesMeta", "TripleBarrierTouchConfig",
     "SIDE_RULES", "LabelsMeta", "SideLabelsConfig",
     "SampleWeightsConfig", "WeightsMeta",
     "BarFeaturesConfig", "FeaturesMeta",
+    "BacktestConfig", "LogisticModelConfig", "ModelConfig", "SizerConfig", "TakeAllModelConfig",
+    "WalkForwardConfig",
 ]
