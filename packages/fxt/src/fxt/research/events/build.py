@@ -39,18 +39,17 @@ import polars as pl
 from fxt.lake.models import BarsMeta, CheckRecord
 from fxt.lake.models import get_meta_io as get_lake_meta_io
 from fxt.lake.paths import Lake, PartitionKey
-from fxt.research.models import CusumEventsConfig, EventsMeta, FileRef, StageConfig, SymbolKey
+from fxt.research.models import EventsMeta, FileRef, SamplerConfig, SymbolKey
 from fxt.research.paths import Research
 from fxt.research.store import code_version, file_ref, write_table
 
-from .cusum import EVENT_SCHEMA, detect_cusum, event_stats
+from .contract import CORE_COLUMNS, check_detected, get_sampler
+from .cusum import event_stats  # importing cusum also registers its sampler
 
-__all__ = ["EVENT_COLUMNS", "EventsBuild", "InputBarsError", "build_events", "event_ids", "load_bars"]
+__all__ = ["EventsBuild", "InputBarsError", "build_events", "event_ids", "load_bars"]
 
 LogFn = Callable[[str], None]
 def _quiet(msg: str) -> None: ...
-
-EVENT_COLUMNS = ("event_id", "symbol", *EVENT_SCHEMA)
 
 
 class InputBarsError(ValueError):
@@ -60,20 +59,11 @@ class InputBarsError(ValueError):
 @dataclass(frozen=True)
 class EventsBuild:
     config_hash: str
-    events: pl.DataFrame                       # every year, EVENT_COLUMNS
+    events: pl.DataFrame                       # every year: CORE_COLUMNS, then the sampler's extras
     paths: tuple[Path, ...]                    # written files (empty for a dry run)
     inputs: tuple[FileRef, ...]
     stats: dict[str, Any] = field(default_factory=dict)
 #
-
-
-#!================================================================================(80)
-#! samplers
-#!--------------------------------------------------------------------------------(80)
-#! config class -> (sampler name, detect function). New samplers register here.
-SAMPLERS: dict[type[StageConfig], tuple[str, Callable[[pl.DataFrame, Any], pl.DataFrame]]] = {
-    CusumEventsConfig: ("cusum", detect_cusum),
-}
 
 
 #!================================================================================(80)
@@ -123,7 +113,7 @@ def event_ids(config_hash: str, symbol: str, t0: pl.Series) -> pl.Series:
 #! main
 #!--------------------------------------------------------------------------------(80)
 def build_events(
-    config: StageConfig,
+    config: SamplerConfig,
     *,
     source: str,
     market: str,
@@ -134,27 +124,23 @@ def build_events(
     log: LogFn = _quiet,
 ) -> EventsBuild:
     """ Detect events over every year of bars and (unless write=False) write them. """
-    try:
-        sampler, detect = SAMPLERS[type(config)]
-    except KeyError:
-        raise TypeError(f"no sampler registered for {type(config).__qualname__}") from None
+    detect = get_sampler(config)
     if lake is None or research is None:
         dl, dr = _defaults()
         lake, research = lake or dl, research or dr
 
-    interval: str = config.interval                       # type: ignore[attr-defined]
-    price: str = getattr(config, "price", "mid_close")
     bars, paths = load_bars(lake, source=source, market=market, symbol=symbol,
-                            interval=interval, columns=("time", price))
-    log(f"{symbol}: {bars.height} {interval} bars from {len(paths)} file(s)")
+                            interval=config.interval, columns=config.bar_columns())
+    log(f"{symbol}: {bars.height} {config.interval} bars from {len(paths)} file(s)")
 
-    found = detect(bars, config)
+    found = check_detected(detect(bars, config), config.sampler)
     h = config.config_hash()
     events = found.select(
         event_ids(h, symbol, found.get_column("t0")),
         pl.lit(symbol, dtype=pl.String).alias("symbol"),
-        *EVENT_SCHEMA,
+        pl.all(),
     )
+    assert events.columns[:len(CORE_COLUMNS)] == list(CORE_COLUMNS)
     stats = event_stats(found, bars)
     log(f"{symbol}: {events.height} events ({stats['per_active_day']:.2f} per active day), config={h}")
 
@@ -177,7 +163,7 @@ def build_events(
         part = events.filter(pl.col("t0").dt.year() == year)
         meta = EventsMeta.for_config(config, dataset=dataset, year=year, rows=part.height,
                                      inputs=inputs, checks=checks, code_version=version,
-                                     sampler=sampler)
+                                     sampler=config.sampler)
         written.append(write_table(part, meta, research=research))
         log(f"  wrote {year}: {part.height} events")
 

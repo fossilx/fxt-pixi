@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from fxt.lake.models import BarsMeta, CheckRecord, get_meta_io as lake_meta_io
 from fxt.research import Research, Stage
 from fxt.research.events import (
-    EVENT_COLUMNS, EVENT_SCHEMA, InputBarsError, build_events, detect_cusum, event_ids, prepare_bars,
+    CORE_COLUMNS, CUSUM_SCHEMA, InputBarsError, build_events, detect_cusum, event_ids, prepare_bars,
 )
 from fxt.research.models import CusumEventsConfig, EventsMeta
 from fxt.research.store import read_table
@@ -122,9 +122,9 @@ def test_matches_the_first_pass_implementation(params):
 
 def test_schema():
     got = detect_cusum(hourly_bars(), CusumEventsConfig())
-    assert dict(got.schema) == EVENT_SCHEMA
+    assert dict(got.schema) == CUSUM_SCHEMA
     empty = detect_cusum(hourly_bars(n_days=1), CusumEventsConfig())
-    assert empty.height == 0 and dict(empty.schema) == EVENT_SCHEMA
+    assert empty.height == 0 and dict(empty.schema) == CUSUM_SCHEMA
 
 
 def test_a_jump_fires_at_the_right_bar():
@@ -217,7 +217,7 @@ def test_build_writes_one_file_per_year(bar_lake, rs):
         assert isinstance(meta, EventsMeta) and meta.sampler == "cusum"
         assert meta.config_hash == CFG.config_hash()
         assert meta.rows == df.height
-        assert tuple(df.columns) == EVENT_COLUMNS
+        assert tuple(df.columns) == (*CORE_COLUMNS, "ret", "z", "vol")
         assert (df["t0"].dt.year() == meta.year).all()          # partitioned by t0's year
         assert {i.path for i in meta.inputs} == {
             p["1HOUR"].relative_to(lb.lake.root).as_posix() for p in built.values()}
@@ -232,7 +232,7 @@ def test_state_carries_across_years(bar_lake, rs):
     lb, built = bar_lake
     res = build_events(CFG, **SER, lake=lb.lake, research=rs, write=False)
     bars = pl.concat([pl.read_parquet(built[y]["1HOUR"]) for y in sorted(built)])
-    assert res.events.select(*EVENT_SCHEMA).equals(detect_cusum(bars, CFG))
+    assert res.events.select(*CUSUM_SCHEMA).equals(detect_cusum(bars, CFG))
     assert res.paths == ()
     assert not rs.root.exists()                                   # dry run wrote nothing
 

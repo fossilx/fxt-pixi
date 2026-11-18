@@ -8,12 +8,12 @@ events out, no files. See CusumEventsConfig for the algorithm and parameters.
     stats  = event_stats(events, bars)                 # what h gets tuned against
 
 Output columns (one row per fire):
-    t0          close of the triggering bar (bar open + bar width), UTC
-    direction   +1 if the up accumulator fired, -1 if the down one did
-    price_t0    `price` (mid close) of the triggering bar
-    ret         the triggering bar's log return
-    z           ret / vol
-    vol         the vol estimate used (through the previous bar)
+    t0          close of the triggering bar (bar open + bar width), UTC   } core: every
+    direction   +1 if the up accumulator fired, -1 if the down one did    } sampler has
+    price_t0    `price` (mid close) of the triggering bar                 } these
+    ret         the triggering bar's log return                           } CUSUM extras,
+    z           ret / vol                                                 } diagnostics
+    vol         the vol estimate used (through the previous bar)          } only
 
 Bars are walked in time order across every year given, so vol and the
 accumulators carry over year boundaries. Weekend/holiday gaps (a return
@@ -37,14 +37,14 @@ import polars as pl
 
 from fxt.research.models.events import CusumEventsConfig
 
-__all__ = ["EVENT_SCHEMA", "detect_cusum", "event_stats", "prepare_bars"]
+from .contract import DETECT_CORE_SCHEMA, register_sampler
+
+__all__ = ["CUSUM_SCHEMA", "detect_cusum", "event_stats", "prepare_bars"]
 
 TIME_COL = "time"
 
-EVENT_SCHEMA: dict[str, pl.DataType] = {
-    "t0":        pl.Datetime("us", "UTC"),
-    "direction": pl.Int8(),
-    "price_t0":  pl.Float64(),
+CUSUM_SCHEMA: dict[str, pl.DataType] = {
+    **DETECT_CORE_SCHEMA,
     "ret":       pl.Float64(),
     "z":         pl.Float64(),
     "vol":       pl.Float64(),
@@ -79,8 +79,9 @@ def prepare_bars(bars: pl.DataFrame, price: str = "mid_close") -> pl.DataFrame:
 #!================================================================================(80)
 #! main
 #!--------------------------------------------------------------------------------(80)
+@register_sampler(CusumEventsConfig)
 def detect_cusum(bars: pl.DataFrame, cfg: CusumEventsConfig) -> pl.DataFrame:
-    """ Events (EVENT_SCHEMA) from bars with `time` (bar open) and `cfg.price`. """
+    """ Events (CUSUM_SCHEMA) from bars with `time` (bar open) and `cfg.price`. """
     df = prepare_bars(bars, cfg.price)
     t = df.get_column(TIME_COL).dt.epoch("us").to_numpy()
     price = df.get_column(cfg.price).to_numpy()
@@ -130,7 +131,7 @@ def detect_cusum(bars: pl.DataFrame, cfg: CusumEventsConfig) -> pl.DataFrame:
         "ret":       pl.Series(out_ret, dtype=pl.Float64),
         "z":         pl.Series(out_z, dtype=pl.Float64),
         "vol":       pl.Series(out_vol, dtype=pl.Float64),
-    }).cast(EVENT_SCHEMA)  # type: ignore[arg-type]
+    }).cast(CUSUM_SCHEMA)  # type: ignore[arg-type]
 #
 
 
@@ -138,7 +139,9 @@ def detect_cusum(bars: pl.DataFrame, cfg: CusumEventsConfig) -> pl.DataFrame:
 #! diagnostics
 #!--------------------------------------------------------------------------------(80)
 def event_stats(events: pl.DataFrame, bars: pl.DataFrame) -> dict[str, Any]:
-    """ Frequency diagnostics for tuning `h` (event rate, spacing, balance, per year). """
+    """ Frequency diagnostics for tuning a sampler (event rate, spacing, balance, per year).
+        Uses only core columns, so it works for any sampler.
+    """
     active_days = bars.select(pl.col(TIME_COL).dt.date().n_unique()).item()
     n = events.height
     gaps_h = (events.get_column("t0").diff().dt.total_seconds().drop_nulls() / 3600.0)

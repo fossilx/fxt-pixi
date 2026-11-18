@@ -9,8 +9,13 @@ a trade side (follow / fade / ...) is the side rule's job, applied in the
 labels stage. That way cusum_follow and cusum_fade share one event set and
 one touch pass (spec §6.1).
 
+    SamplerConfig       base for every sampler's config (bar interval, sampler name)
     CusumEventsConfig   two-sided CUSUM on vol-normalized bar returns
     EventsMeta          metadata for every events file (any sampler)
+
+Adding a sampler: subclass SamplerConfig (set `sampler`, add its parameters,
+register it), write a detect function returning the core event columns
+(fxt.research.events.contract), and decorate it with @register_sampler.
 '''
 #=================================================================================(80)
 #
@@ -19,7 +24,7 @@ one touch pass (spec §6.1).
 #=================================================================================(80)
 from __future__ import annotations
 
-from typing import Literal, Self
+from typing import ClassVar, Literal, Self
 
 from pydantic import Field, field_validator, model_validator
 
@@ -29,11 +34,43 @@ from ._registry import registry
 from .config import StageConfig
 from .meta import ResearchMeta
 
-__all__ = ["CusumEventsConfig", "EventsMeta"]
+__all__ = ["CusumEventsConfig", "EventsMeta", "SamplerConfig"]
+
+
+class SamplerConfig(StageConfig):
+    """ Unregistered base for sampler configs: everything the events builder needs
+        to know about a sampler without knowing which one it is.
+    """
+    stage = Stage.EVENTS
+    sampler: ClassVar[str]                                    # short name, e.g. "cusum"
+
+    interval: str = "1HOUR"                                   # bar interval in data/lake/derived
+
+    @field_validator("interval")
+    @classmethod
+    def _known_interval(cls, v: str) -> str:
+        from fxt.lake.derived.bars import get_interval      # lazy: keeps model import light
+        get_interval(v)
+        return v
+
+    @property
+    def bar_seconds(self) -> int:
+        from fxt.lake.derived.bars import get_interval
+        return get_interval(self.interval).seconds
+
+    def bar_columns(self) -> tuple[str, ...]:
+        """ Bar columns the detect function needs (always includes `time`). """
+        return ("time", "mid_close")
+
+    @property
+    def label(self) -> str:
+        """ Short human-readable id (not part of the hash). """
+        return self.sampler
+#
 
 
 @registry.register("CusumEventsConfig", 1)
-class CusumEventsConfig(StageConfig):
+class CusumEventsConfig(SamplerConfig):
     """ Two-sided CUSUM of vol-normalized log returns of `price` on `interval` bars.
 
         z_t   = r_t / vol_{t-1}        r_t = log(price_t / price_{t-1})
@@ -47,9 +84,8 @@ class CusumEventsConfig(StageConfig):
     Defaults reproduce the first-pass implementation that h=3 was tuned on
     (fxtapps/derived/first_bars/cusum_events.py).
     """
-    stage = Stage.EVENTS
+    sampler = "cusum"
 
-    interval: str = "1HOUR"                                   # bar interval in data/lake/derived
     price: Literal["mid_close"] = "mid_close"                 # series the returns are taken from
     vol_estimator: Literal["ewma"] = "ewma"                   # EWMA of the bar returns themselves
     h: float = Field(3.0, gt=0)                               # threshold, cumulative std-devs
@@ -59,17 +95,8 @@ class CusumEventsConfig(StageConfig):
     reset_on_gap: bool = True                                 # zero the accumulators at a gap
     vol_floor: float = Field(1e-6, gt=0)                      # max(vol, floor), log-return units
 
-    @field_validator("interval")
-    @classmethod
-    def _known_interval(cls, v: str) -> str:
-        from fxt.lake.derived.bars import get_interval      # lazy: keeps model import light
-        get_interval(v)
-        return v
-
-    @property
-    def bar_seconds(self) -> int:
-        from fxt.lake.derived.bars import get_interval
-        return get_interval(self.interval).seconds
+    def bar_columns(self) -> tuple[str, ...]:
+        return ("time", self.price)
 
     @property
     def label(self) -> str:
