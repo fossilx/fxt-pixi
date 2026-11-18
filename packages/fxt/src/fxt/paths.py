@@ -115,11 +115,12 @@ class PathSettings(BaseModel):
     jupyter:Path = Path("jupyter")
     dataprep:Path = Path("data/dataprep")
     datalake:Path = Path("data/lake")
+    research:Path = Path("data/research")
 
     @model_validator(mode="after")
     def _resolve(self):
         self.root = self.root.expanduser().resolve()
-        for name in ("jupyter", "dataprep", "datalake"):
+        for name in ("jupyter", "dataprep", "datalake", "research"):
             p = getattr(self, name).expanduser()
             setattr(self, name, p if p.is_absolute() else self.root / p)
         return self

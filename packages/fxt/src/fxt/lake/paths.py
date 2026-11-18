@@ -25,8 +25,8 @@ from enum import StrEnum
 class LakeType(StrEnum):
     RAW = "raw"            # source of truth (data from broker/source)
     DERIVED = "derived"    # deterministic transforms of raw, one correct answer
-    FEATURES = "features"  # parameterized, e.g. features/feature_set=baseline_v1/...
-    LABELS = "labels"      # parameterized, e.g. CUSUM events, triple-barrier labels
+    #! anything that depends on a parameter choice (features, events, labels,
+    #! weights) lives in data/research instead: see fxt.research
 #
 
 PARTITION_KEYS = ("source", "market", "symbol", "interval", "year")
@@ -67,14 +67,10 @@ class Lake(BaseModel):
             the source of truth (aka data from broker/source)
         lake/derived
             holds deterministic transforms of raw that have one correct answer
-        
-        #features and labels hold anything that depends on a parameter choice
-        lake/features
-            can separate into subdirs like:
-                lake/features/feature_set=baseline_v1/..
-        lake/labels
-            ie CUSUM events, triple barrier labels, 
-            
+
+        Anything that depends on a parameter choice (features, events, labels,
+        weights) is keyed by a config hash and lives in data/research, built
+        by fxt.research.Research, never here.
     """
     model_config = ConfigDict(frozen=True)
     root:Path
@@ -96,9 +92,6 @@ class Lake(BaseModel):
     ) -> Path:
         """ Build a hive-style lake path, e.g. raw/source=dukascopy/market=forex/...
         """
-        if LakeType(laketype) not in (LakeType.RAW, LakeType.DERIVED):
-            raise ValueError(f"{laketype} has its own path builder")
-
         values = {"source": source, "market": market, "symbol": symbol,
                   "interval": interval, "year": year}
         rtn = self.root / LakeType(laketype)   # raises ValueError on a bad type
@@ -125,26 +118,11 @@ class Lake(BaseModel):
             raise LakePathNotFound(f"Path doesn't exist in lake: {rtn}")
         return rtn
     #
-    def _features_path(self, *args, **kwargs):
-        """ To show intent; will write once I need it.
-        """
-        raise NotImplementedError
-    #
-    def _labels_path(self, *args, **kwargs):
-        """ To show intent; will write once I need it.
-        """
-        raise NotImplementedError
-    #
-
     #! convenience methods
     def raw(self, **kwargs) -> Path:
         return self._partition_path(LakeType.RAW, **kwargs)
     def derived(self, **kwargs) -> Path:
         return self._partition_path(LakeType.DERIVED, **kwargs)
-    def features(self, **kwargs) -> Path:
-        return self._features_path(**kwargs)
-    def labels(self, **kwargs) -> Path:
-        return self._labels_path(**kwargs)
 
 
     #~======================================================================(70)

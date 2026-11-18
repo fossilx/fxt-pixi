@@ -42,6 +42,19 @@ def get_lake() -> Lake:
 
 
 #!================================================================================(80)
+#! for: research tables
+#!--------------------------------------------------------------------------------(80)
+from fxt.research import Research
+
+@lru_cache
+def get_research() -> Research:
+    """ Returns the Research path builder singleton (data/research).
+    """
+    return Research(root=get_settings().paths.research)
+#
+
+
+#!================================================================================(80)
 #! for: notifier
 #!--------------------------------------------------------------------------------(80)
 from fxt.notify import Notifier
@@ -75,5 +88,6 @@ if(__name__ == "__main__"):
     pprint(get_settings())
     pprint(get_secrets())
     pprint(get_lake())
+    pprint(get_research())
     
 

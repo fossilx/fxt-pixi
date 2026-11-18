@@ -11,4 +11,5 @@ namespace="fxt-data"
 #   jupyter:Path = Path("jupyter")
 #   dataprep:Path = Path("data/dataprep")
 #   datalake:Path = Path("data/lake")
+#   research:Path = Path("data/research")
 
