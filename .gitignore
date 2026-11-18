@@ -3,6 +3,7 @@
 .tmp
 .vscode
 .old
+.patches
 ___*
 .directory
 
