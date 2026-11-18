@@ -1,0 +1,19 @@
+# Base exclusions for `pixi run zip <pkg>` — .gitignore syntax,
+# matched relative to the package directory being zipped.
+# A <pkg>/.zipignore is read after this file, so its rules win:
+# add patterns to exclude more, or `!pattern` to re-include.
+
+__pycache__/
+*.py[cod]
+.tmp/
+.old/
+___*
+
+.env
+
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+.DS_Store
+.zipignore

@@ -1,0 +1,15 @@
+[ui]
+theme = "catppuccin-mocha"
+
+[defaults]
+root = "data/"
+#firzt show type, then the rest in w/e order (only one at the moment)
+meta_keys = ["fxt-data:type", "fxt-data*"]
+
+[location]
+root = "/home/tony/cloud/.rclone-sync/code/python/.jupyter-pixi/data"
+file = "lake/derived/source=dukascopy/market=forex/symbol=EURGBP/interval=1MIN/year=2013/EURGBP-2013.parquet"
+
+[bookmarks]
+"/home/tony/cloud/.rclone-sync/code/python/.jupyter-pixi/data/lake/derived/source=dukascopy/market=forex/symbol=EURGBP/interval=1MIN/year=2013/EURGBP-2013.parquet" = "1MIN-EURGBP-2013"
+"/home/tony/cloud/.rclone-sync/code/python/.jupyter-pixi/data/lake/derived/source=dukascopy/market=forex/symbol=EURGBP/interval=1HOUR/year=2013/EURGBP-2013.parquet" = "1HOUR-EURGBP-2013"

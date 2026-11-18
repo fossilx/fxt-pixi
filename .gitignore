@@ -1,0 +1,51 @@
+
+#! ignore misc
+.tmp
+.vscode
+.old
+___*
+.directory
+
+
+#ignore downloaded files
+data/*
+
+#! RE: PROJECT-WIDE SECRETS
+.env
+.env.*
+!.env.example
+
+#! RE: PYTHON
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+
+
+#! RE: pixi environments
+.pixi/*
+!.pixi/config.toml
+
+#! just leave out jupyter for now
+
+
+#! RE: JUPYTER NOTEBOOKS + CONFIG
+### we ignore .jupyter-conf.py cuz it may contain the password hash for server
+jupyter/
+#jupyter/.jupyter/jupyter_lab_config.py
+
+#to version control notebooks, consider: jupytext (jupytext.org)
+*.ipynb
+*.ipynb_checkpoints*
+
+#pixi-kernel
+#jupyterlab-pygments
+#jupyterlab-plotly
+#jupyterlab-execute-time
+#jupyterlab-widgets-jupyterlab-manager
+#jupterlab-myst

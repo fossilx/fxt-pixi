@@ -1,0 +1,14 @@
+#see fxt/settings.py ~ Settings()
+#the sections here correspond to field names
+
+
+[parquet_store]
+namespace="fxt-data"
+
+[paths]
+#root:Path = Field(default_factory=find_project_root)
+#defaults: 
+#   jupyter:Path = Path("jupyter")
+#   dataprep:Path = Path("data/dataprep")
+#   datalake:Path = Path("data/lake")
+
