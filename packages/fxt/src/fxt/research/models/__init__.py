@@ -18,6 +18,7 @@ from .meta import FileRef, ResearchMeta, SymbolKey
 from .events import CusumEventsConfig, EventsMeta, SamplerConfig
 from .touches import TouchesMeta, TripleBarrierTouchConfig
 from .labels import SIDE_RULES, LabelsMeta, SideLabelsConfig
+from .weights import SampleWeightsConfig, WeightsMeta
 
 __all__ = [
     "registry",
@@ -26,4 +27,5 @@ __all__ = [
     "CusumEventsConfig", "EventsMeta", "SamplerConfig",
     "TouchesMeta", "TripleBarrierTouchConfig",
     "SIDE_RULES", "LabelsMeta", "SideLabelsConfig",
+    "SampleWeightsConfig", "WeightsMeta",
 ]
