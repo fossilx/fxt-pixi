@@ -49,6 +49,10 @@ reader = "python -m fxtapps.dataprep.reader.cli"
 cmd = "python -m fxtapps.research.configs.cli"
 description = "(research) what each config hash in data/research means; run with: pixi run research-configs [HASH] [--stage events] [--json]"
 
+[tasks.labels]
+cmd = "python -m fxtapps.research.labels.cli"
+description = "(research) side labels (follow/fade) on a touch pass; run with: pixi run labels EURJPY [--side fade] [--timeout-win] [--dry-run]"
+
 [tasks.touches]
 cmd = "python -m fxtapps.research.touches.cli"
 description = "(research) triple-barrier touch pass on events; run with: pixi run touches EURJPY [--k 1 --n 48] [--sweep 0.5x24,1x48] [--dry-run]"

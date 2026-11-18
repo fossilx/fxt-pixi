@@ -1,8 +1,8 @@
 '''
 build
 
-Runs the touch pass for one symbol and writes it, one file per year of t0
-(the same years as the events):
+Builders for both labeling steps. Step 1, the touch pass (build_touches),
+writes one file per year of t0 (the same years as the events):
 
     data/research/touches/config=<hash>/source=…/market=…/symbol=…/year=YYYY/SYMBOL-YYYY.parquet
 
@@ -19,6 +19,13 @@ Every file read is listed in each output file's `meta.inputs` (tick files
 only if one was actually consulted). Bar files must be stamped and passed.
 Invariant checks (check_touches) run on the result and are recorded in the
 metadata; a failed check stops the build before anything is written.
+
+Step 2, side labels (build_labels), reads a touch pass plus its events'
+directions and writes data/research/labels/config=<hash>/… for one side rule;
+same years, same rules for lineage and checks.
+
+    cfg = SideLabelsConfig(touches_hash=..., side_rule="fade")
+    result = build_labels(cfg, source="dukascopy", market="forex", symbol="EURJPY")
 '''
 #=================================================================================(80)
 #
@@ -38,13 +45,20 @@ from fxt.lake.models import CheckRecord
 from fxt.lake.paths import Lake, PartitionKey
 from fxt.research.events.build import InputBarsError, load_bars
 from fxt.research.events.contract import CORE_COLUMNS
-from fxt.research.models import FileRef, SymbolKey, TouchesMeta, TripleBarrierTouchConfig
+from fxt.research.models import (
+    FileRef, LabelsMeta, ResearchMeta, SideLabelsConfig, SymbolKey, TouchesMeta, TripleBarrierTouchConfig,
+    registry,
+)
 from fxt.research.paths import Research, Stage
 from fxt.research.store import code_version, file_ref, read_meta, write_table
 
+from .side import OUTCOMES, side_labels
 from .touch import TOUCH_SCHEMA, MinuteBars, compute_touches
 
-__all__ = ["InputEventsError", "LakeTicks", "TouchesBuild", "build_touches", "check_touches", "touch_stats"]
+__all__ = [
+    "InputEventsError", "LakeTicks", "TouchesBuild", "build_touches", "check_touches", "touch_stats",
+    "InputTouchesError", "LabelsBuild", "build_labels", "check_labels", "label_stats", "strategy_label",
+]
 
 
 def _quiet(msg: str) -> None: ...
@@ -227,4 +241,123 @@ def build_touches(
         log(f"  wrote {year}: {part.height} rows")
     return TouchesBuild(config_hash=h, touches=touches, paths=tuple(written), inputs=inputs,
                         checks=checks, stats=stats)
+#-
+
+
+#!================================================================================(80)
+#! side labels (step 2)
+#!--------------------------------------------------------------------------------(80)
+class InputTouchesError(ValueError):
+    """ The touch pass to label is missing or unreadable. """
+
+
+@dataclass(frozen=True)
+class LabelsBuild:
+    config_hash: str
+    strategy_id: str
+    labels: pl.DataFrame                       # every year, LABEL_SCHEMA
+    paths: tuple[Path, ...]
+    inputs: tuple[FileRef, ...]
+    checks: tuple[CheckRecord, ...]
+    stats: dict[str, Any] = field(default_factory=dict)
+#
+
+def check_labels(df: pl.DataFrame) -> tuple[CheckRecord, ...]:
+    """ Invariants every labels table must satisfy. """
+    placed = df.filter(pl.col("outcome") != "insufficient_data")
+    pt, sl = (df.filter(pl.col("outcome") == o) for o in ("pt", "sl"))
+    tests = {
+        "one row per event":             df.get_column("event_id").is_unique().all(),
+        "outcome values known":          df.get_column("outcome").is_in(list(OUTCOMES)).all(),
+        "side is +1 or -1":              df.get_column("side").is_in([1, -1]).all(),
+        "meta_label null iff insufficient": (df["meta_label"].is_null() == (df["outcome"] == "insufficient_data")).all(),
+        "profit-takes have ret > 0":     (pt["ret"] > 0).all(),
+        "stop-losses have ret < 0":      (sl["ret"] < 0).all(),
+        "excursions non-negative":       ((placed["max_favorable"] >= 0) & (placed["max_adverse"] >= 0)).all(),
+    }
+    return tuple(CheckRecord(name=f"labels: {name}", status="pass" if bool(passed) else "fail")
+                 for name, passed in tests.items())
+#
+
+def label_stats(df: pl.DataFrame) -> dict[str, Any]:
+    placed = df.filter(pl.col("outcome") != "insufficient_data")
+    n = max(placed.height, 1)
+    by = placed.group_by("outcome").agg(pl.len(), pl.col("ret").mean().alias("mean_ret"))
+    return {
+        "events": df.height,
+        "placed": placed.height,
+        "share": {o: placed.filter(pl.col("outcome") == o).height / n for o in ("pt", "sl", "timeout")},
+        "win_rate": placed["meta_label"].mean() if placed.height else None,
+        "mean_ret": placed["ret"].mean() if placed.height else None,
+        "mean_ret_by_outcome": {o: r for o, _, r in by.iter_rows()},
+        "timeout_paths": dict(placed.filter(pl.col("outcome") == "timeout")
+                              .group_by("path_type").len().sort("path_type").iter_rows()),
+    }
+#
+
+def strategy_label(events_meta: ResearchMeta) -> str:
+    """ The sampler's short label (e.g. "cusum_h3") from an events file's stored config. """
+    if registry.has_model(events_meta.config_typeid):
+        cfg = registry.get_model(events_meta.config_typeid).model_validate(events_meta.config)
+        if hasattr(cfg, "label"):
+            return str(cfg.label)
+    return str(getattr(events_meta, "sampler", "events"))
+#
+
+def build_labels(
+    config: SideLabelsConfig,
+    *,
+    source: str,
+    market: str,
+    symbol: str,
+    research: Research | None = None,
+    write: bool = True,
+    log=_quiet,
+) -> LabelsBuild:
+    """ Side labels for every touch of `config.touches_hash` for one symbol. """
+    if research is None:
+        _, research = _defaults()
+    ser = {"source": source, "market": market, "symbol": symbol}
+
+    touch_files = research.scan(Stage.TOUCHES, config=config.touches_hash, **ser)
+    if not touch_files:
+        raise InputTouchesError(f"no touches for config={config.touches_hash} {source}/{market}/{symbol} "
+                                f"in {research.root}")
+    touch_meta = read_meta(touch_files[0][1])
+    events_hash = touch_meta.input_hashes["events"]
+    event_files = research.scan(Stage.EVENTS, config=events_hash, **ser)
+    if not event_files:
+        raise InputEventsError(f"the touch pass {config.touches_hash} was built from events {events_hash}, "
+                               f"which aren't in {research.root}")
+    strategy_id = f"{strategy_label(read_meta(event_files[0][1]))}_{config.side_rule}"
+
+    touches = pl.concat([pl.read_parquet(p, hive_partitioning=False) for _, p in touch_files]).sort("t0")
+    directions = pl.concat([pl.read_parquet(p, columns=["event_id", "direction"], hive_partitioning=False)
+                            for _, p in event_files])
+    labels = side_labels(touches, directions, config, strategy_id=strategy_id)
+    checks = check_labels(labels)
+    if failed := [c.name for c in checks if not c.ok]:
+        raise AssertionError(f"label invariants failed: {failed}")
+    stats = label_stats(labels)
+    h = config.config_hash()
+    log(f"{symbol}: {strategy_id}: {stats['placed']}/{stats['events']} labeled, config={h}")
+
+    inputs = tuple(file_ref(p, lake_root=research.root, research_root=research.root)   # all research files
+                   for _, p in (*touch_files, *event_files))
+    if not write:
+        return LabelsBuild(config_hash=h, strategy_id=strategy_id, labels=labels, paths=(),
+                           inputs=inputs, checks=checks, stats=stats)
+
+    version = code_version()
+    dataset = SymbolKey(**ser)
+    written: list[Path] = []
+    for key, _ in touch_files:
+        part = labels.filter(pl.col("t0").dt.year() == key.year)
+        meta = LabelsMeta.for_config(config, dataset=dataset, year=key.year, rows=part.height,
+                                     inputs=inputs, checks=checks, code_version=version,
+                                     strategy_id=strategy_id)
+        written.append(write_table(part, meta, research=research))
+        log(f"  wrote {key.year}: {part.height} rows")
+    return LabelsBuild(config_hash=h, strategy_id=strategy_id, labels=labels, paths=tuple(written),
+                       inputs=inputs, checks=checks, stats=stats)
 #-

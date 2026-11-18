@@ -17,6 +17,7 @@ from .config import INPUT_SUFFIX, ConfigHash, ConfigRuleError, StageConfig, inpu
 from .meta import FileRef, ResearchMeta, SymbolKey
 from .events import CusumEventsConfig, EventsMeta, SamplerConfig
 from .touches import TouchesMeta, TripleBarrierTouchConfig
+from .labels import SIDE_RULES, LabelsMeta, SideLabelsConfig
 
 __all__ = [
     "registry",
@@ -24,4 +25,5 @@ __all__ = [
     "FileRef", "ResearchMeta", "SymbolKey",
     "CusumEventsConfig", "EventsMeta", "SamplerConfig",
     "TouchesMeta", "TripleBarrierTouchConfig",
+    "SIDE_RULES", "LabelsMeta", "SideLabelsConfig",
 ]
