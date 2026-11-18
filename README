@@ -89,8 +89,10 @@ Then goes...
 ### 3: derived ~ sampler events
 
 - `pixi run events-cusum`
-  * runs on the `1HOUR` bars, identifying the 
-  * 
+  * runs on the `1HOUR` bars
+  * to have it test a bunch of values use `--sweep`, like so:<br>
+    `pixi run events-cusum EURJPY --sweep 2,3,4,5`
 
-
+- to view existing research configs (and their hashes):<br>
+  `pixi run research-configs`
 

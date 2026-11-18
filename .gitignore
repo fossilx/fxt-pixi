@@ -11,6 +11,7 @@ ___*
 #ignore downloaded files
 data/*
 
+
 #! RE: PROJECT-WIDE SECRETS
 .env
 .env.*
