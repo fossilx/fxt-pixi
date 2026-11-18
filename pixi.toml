@@ -45,6 +45,10 @@ reader = "python -m fxtapps.dataprep.reader.cli"
 #bars-1h
 
 #{ cmd = "pytest -m slow -s", cwd = "packages/fxt" }
+[tasks.research-configs]
+cmd = "python -m fxtapps.research.configs.cli"
+description = "(research) what each config hash in data/research means; run with: pixi run research-configs [HASH] [--stage events] [--json]"
+
 [tasks.events-cusum]
 cmd = "python -m fxtapps.research.events_cusum.cli"
 description = "(research) CUSUM events from 1HOUR bars; run with: pixi run events-cusum EURJPY [--h 3] [--sweep 2,3,4] [--dry-run]"
