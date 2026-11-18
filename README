@@ -36,7 +36,7 @@ data
 ---
 ---
 
-# stages
+# summary of each stage
 
 The core structure of this is based on a common set of stages that are used
 throughout the project. The stages so far:
@@ -88,6 +88,9 @@ Then goes...
 
 ### 3: derived ~ sampler events
 
+- `pixi run events-cusum`
+  * runs on the `1HOUR` bars, identifying the 
+  * 
 
 
 
