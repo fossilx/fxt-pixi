@@ -45,6 +45,10 @@ reader = "python -m fxtapps.dataprep.reader.cli"
 #bars-1h
 
 #{ cmd = "pytest -m slow -s", cwd = "packages/fxt" }
+[tasks.registry]
+cmd = "python -m fxtapps.research.registry.cli"
+description = "(research) experiment registry (data/experiments.db); run with: pixi run registry sync|show|runs [STRATEGY]|run RUN_ID"
+
 [tasks.research-configs]
 cmd = "python -m fxtapps.research.configs.cli"
 description = "(research) what each config hash in data/research means; run with: pixi run research-configs [HASH] [--stage events] [--json]"

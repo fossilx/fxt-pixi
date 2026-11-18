@@ -12,4 +12,5 @@ namespace="fxt-data"
 #   dataprep:Path = Path("data/dataprep")
 #   datalake:Path = Path("data/lake")
 #   research:Path = Path("data/research")
+#   experiments:Path = Path("data/experiments.db")
 

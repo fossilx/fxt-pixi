@@ -55,6 +55,18 @@ def get_research() -> Research:
 
 
 #!================================================================================(80)
+#! for: the experiment registry
+#!--------------------------------------------------------------------------------(80)
+def get_registry():
+    """ The experiment registry (data/experiments.db), created on first use.
+        Not cached: each caller gets its own connection.
+    """
+    from fxt.research.registry import Registry
+    return Registry(get_settings().paths.experiments)
+#
+
+
+#!================================================================================(80)
 #! for: notifier
 #!--------------------------------------------------------------------------------(80)
 from fxt.notify import Notifier
