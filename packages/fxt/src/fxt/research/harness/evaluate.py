@@ -41,7 +41,7 @@ from .backtest import apply_sizer, simulate, trade_costs
 from .dataset import Dataset
 from .folds import make_folds, usable_mask, year_span
 from .metrics import classifier_metrics, trading_metrics
-from .models import fit_predict, model_inputs
+from .models import fold_predict, model_inputs
 from .stats import deflated_sharpe, psr
 
 __all__ = ["EvalResult", "PREDICTION_COLUMNS", "evaluate"]
@@ -121,19 +121,23 @@ def evaluate(
         y_all = costed.get_column("meta_label").to_numpy()
         w_all = (np.ones(costed.height) if model.sample_weight == "none"
                  else costed.get_column(model.sample_weight).to_numpy().astype(float))
+        t0_all = costed.get_column("t0").dt.epoch("s").to_numpy()
+        ls_all = costed.get_column("life_start").to_numpy()
+        le_all = costed.get_column("life_end").to_numpy()
 
         parts, priors, fold_rows = [], {}, []
         for f in folds:
             if f.n_train == 0 or f.n_test == 0:
                 raise ValueError(f"fold {f.index} ({f.test_year}): {f.n_train} train / {f.n_test} test events")
-            prob = fit_predict(model, X_all[f.train], y_all[f.train], w_all[f.train], X_all[f.test])
+            prob, info = fold_predict(model, X_all[f.train], y_all[f.train], w_all[f.train], t0_all[f.train],
+                                      ls_all[f.train], le_all[f.train], X_all[f.test])
             priors[f.index] = float((w_all[f.train] * y_all[f.train]).sum() / w_all[f.train].sum())
             parts.append(costed.filter(pl.Series(f.test)).with_columns(
                 pl.lit(f.index, pl.Int32).alias("fold"), pl.lit(f.test_year, pl.Int32).alias("test_year"),
-                pl.Series("prob", prob), pl.Series("size", apply_sizer(prob, sizer)),
+                pl.Series("prob", prob), pl.Series("size", apply_sizer(prob, sizer, info["sizing_prior"])),
                 pl.Series("sample_weight", w_all[f.test])))
             fold_rows.append({"fold": f.index, "test_year": f.test_year, "n_train": f.n_train,
-                              "n_test": f.n_test, "purged": f.purged, "embargoed": f.embargoed})
+                              "n_test": f.n_test, "purged": f.purged, "embargoed": f.embargoed, **info})
             log(f"  fold {f.index} ({f.test_year}): train {f.n_train:,} (purged {f.purged}), test {f.n_test:,}")
 
         trades = simulate(pl.concat(parts), backtest).select(PREDICTION_COLUMNS)

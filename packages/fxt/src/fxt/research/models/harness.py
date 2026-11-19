@@ -9,7 +9,8 @@ the hashes it used (`run_configs`).
     BacktestConfig        backtest: costs (bid/ask, slippage, commission), position cap
     TakeAllModelConfig    model: no model; predicts the training base rate
     LogisticModelConfig   model: L2 logistic regression on standardized features (v2: side inputs)
-    SizerConfig           sizer: take_all / threshold / linear
+    GBMModelConfig        model: LightGBM, fixed small trees, calibrated inside each fold
+    SizerConfig           sizer: take_all / threshold / linear / above_prior
 '''
 #=================================================================================(80)
 #
@@ -25,7 +26,7 @@ from pydantic import Field, model_validator
 from ._registry import registry
 from .config import HarnessConfig
 
-__all__ = ["BacktestConfig", "LogisticModelConfig", "LogisticModelConfigV1", "ModelConfig", "SizerConfig",
+__all__ = ["BacktestConfig", "GBMModelConfig", "LogisticModelConfig", "LogisticModelConfigV1", "ModelConfig", "SizerConfig",
            "TakeAllModelConfig", "WalkForwardConfig"]
 
 
@@ -179,21 +180,62 @@ class LogisticModelConfig(ModelConfig):
 #
 
 
+@registry.register("GBMModelConfig", 1)
+class GBMModelConfig(ModelConfig):
+    """ Gradient-boosted trees (LightGBM, binary log loss), meta-model default (spec §8.1).
+
+    Parameters are fixed, small and strongly regularized rather than tuned: with ~190
+    independent samples per year, every tuning pass would be another trial (§9.6).
+    Missing feature values are left to LightGBM (no imputation); no scaling needed.
+    Training is deterministic (one thread, fixed seed).
+
+        calibration     "platt" (default): logistic regression of the label on the raw
+                        score's logit; "isotonic": weighted pool-adjacent-violators;
+                        "none": raw probabilities
+        calib_fraction  the latest share of each fold's training events (by t0) held out
+                        to fit the calibrator. The trees are fitted on the rest, purged so
+                        no fitted event's life reaches into the calibration window. The test
+                        year is never used for either.
+    """
+    features: tuple[str, ...] = ()
+    side_inputs: Literal["aligned", "none"] = "aligned"
+    n_rounds: int = Field(200, ge=1)
+    learning_rate: float = Field(0.03, gt=0, le=1)
+    num_leaves: int = Field(7, ge=2)
+    max_depth: int = Field(3, ge=1)
+    min_data_in_leaf: int = Field(50, ge=1)
+    feature_fraction: float = Field(0.8, gt=0, le=1)
+    bagging_fraction: float = Field(0.8, gt=0, le=1)
+    lambda_l2: float = Field(5.0, ge=0)
+    seed: int = 42
+    calibration: Literal["platt", "isotonic", "none"] = "platt"
+    calib_fraction: float = Field(0.25, gt=0, lt=1)
+
+    @property
+    def label(self) -> str:
+        return "gbm" if self.calibration == "platt" else f"gbm_{self.calibration}"
+#
+
+
 @registry.register("SizerConfig", 1)
 class SizerConfig(HarnessConfig):
     """ Probability -> position size in [0, cap] (spec §8.2).
 
-        take_all   size = cap for every event
-        threshold  size = cap if prob > threshold, else 0
-        linear     size = clip((prob - threshold) / (1 - threshold), 0, 1) * cap
+        take_all     size = cap for every event
+        threshold    size = cap if prob > threshold, else 0
+        linear       size = clip((prob - threshold) / (1 - threshold), 0, 1) * cap
+        above_prior  size = cap if prob > the base rate the probabilities are calibrated to
+                     (the calibration window's for a calibrated model, else the training
+                     set's), else 0: "better than an average event", no free parameter
+                     (threshold ignored)
     """
     kind = "sizer"
 
-    rule: Literal["take_all", "threshold", "linear"] = "take_all"
+    rule: Literal["take_all", "threshold", "linear", "above_prior"] = "take_all"
     threshold: float = Field(0.5, ge=0, lt=1)
     cap: float = Field(1.0, gt=0)
 
     @property
     def label(self) -> str:
-        return self.rule if self.rule == "take_all" else f"{self.rule}{self.threshold:g}"
+        return self.rule if self.rule in ("take_all", "above_prior") else f"{self.rule}{self.threshold:g}"
 #-

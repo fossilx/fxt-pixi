@@ -6,6 +6,7 @@
     pixi run evaluate EURJPY                                  # take_all on cusum_h3_follow (the baseline)
     pixi run evaluate EURJPY --model logistic
     pixi run evaluate EURJPY --model logistic --sizer threshold --threshold 0.45
+    pixi run evaluate EURJPY --model gbm --sizer above_prior     # the meta-model, calibrated in-fold
     pixi run evaluate EURJPY --side fade
     pixi run evaluate EURJPY --labels 3b896dab2027 --use ret_24h_z,vol_ratio_24h_120h
     pixi run evaluate EURJPY --features 816950fa181b              # baseline set only (default: baseline + trend)
@@ -20,7 +21,7 @@ from rich.table import Table
 from fxt.research.events import InputBarsError
 from fxt.research.harness import InputDatasetError, evaluate, load_dataset
 from fxt.research.models import (
-    BacktestConfig, CusumEventsConfig, LogisticModelConfig, SideLabelsConfig, SizerConfig, TakeAllModelConfig,
+    BacktestConfig, CusumEventsConfig, GBMModelConfig, LogisticModelConfig, SideLabelsConfig, SizerConfig, TakeAllModelConfig,
     TripleBarrierTouchConfig, WalkForwardConfig,
 )
 from fxt.research.registry import LockboxAlreadyUsed
@@ -51,14 +52,16 @@ def _fmt(fmt: str, v) -> str:
 @click.option("--weights", "weights_hash", help="weights config hash (default: the default for the labels)")
 @click.option("--features", "features_hashes", multiple=True,
               help="features config hash; repeat for several (default: baseline + trend)")
-@click.option("--model", type=click.Choice(["take_all", "logistic"]), default="take_all", show_default=True)
+@click.option("--model", type=click.Choice(["take_all", "logistic", "gbm"]), default="take_all", show_default=True)
+@click.option("--calibration", type=click.Choice(["platt", "isotonic", "none"]), default="platt", show_default=True,
+              help="in-fold probability calibration (gbm)")
 @click.option("--use", "use_features", default="", help="comma-separated feature names (logistic; default all)")
 @click.option("--l2", type=float, default=1e-2, show_default=True)
 @click.option("--side-inputs", type=click.Choice(["aligned", "none"]), default="aligned", show_default=True,
               help="aligned: signed features enter as side x value, plus side (logistic)")
 @click.option("--sample-weight", type=click.Choice(["weight", "weight_uniq", "none"]), default="weight",
               show_default=True)
-@click.option("--sizer", type=click.Choice(["take_all", "threshold", "linear"]), default="take_all",
+@click.option("--sizer", type=click.Choice(["take_all", "threshold", "linear", "above_prior"]), default="take_all",
               show_default=True)
 @click.option("--threshold", type=float, default=0.5, show_default=True)
 @click.option("--slippage", type=float, default=0.2, show_default=True, help="pips per side")
@@ -66,14 +69,19 @@ def _fmt(fmt: str, v) -> str:
 @click.option("--cap", type=float, default=None, help="position cap (total open size)")
 @click.option("--lockbox", is_flag=True, help="evaluate on the lockbox year (one look per strategy)")
 @click.option("--notes", default=None)
-def main(symbol, source, market, labels_hash, side, weights_hash, features_hashes, model, use_features, l2,
+def main(symbol, source, market, labels_hash, side, weights_hash, features_hashes, model, calibration, use_features, l2,
          side_inputs, sample_weight, sizer, threshold, slippage, commission, cap, lockbox, notes) -> None:
     if labels_hash is None:
         th = TripleBarrierTouchConfig(events_hash=CusumEventsConfig().config_hash()).config_hash()
         labels_hash = SideLabelsConfig(touches_hash=th, side_rule=side).config_hash()
     feats = tuple(f.strip() for f in use_features.split(",") if f.strip())
-    mcfg = (TakeAllModelConfig(sample_weight=sample_weight) if model == "take_all"
-            else LogisticModelConfig(features=feats, l2=l2, sample_weight=sample_weight, side_inputs=side_inputs))
+    if model == "take_all":
+        mcfg = TakeAllModelConfig(sample_weight=sample_weight)
+    elif model == "logistic":
+        mcfg = LogisticModelConfig(features=feats, l2=l2, sample_weight=sample_weight, side_inputs=side_inputs)
+    else:
+        mcfg = GBMModelConfig(features=feats, sample_weight=sample_weight, side_inputs=side_inputs,
+                              calibration=calibration)
     scfg = SizerConfig(rule=sizer, threshold=threshold)
     bcfg = BacktestConfig(slippage_pips=slippage, commission_bp=commission, position_cap=cap)
     cv = WalkForwardConfig()

@@ -11,7 +11,10 @@ from .dataset import Dataset, InputDatasetError, default_features, load_dataset
 from .evaluate import PREDICTION_COLUMNS, EvalResult, evaluate
 from .folds import Fold, data_starts, make_folds, usable_mask
 from .metrics import auc, classifier_metrics, daily_pnl, trading_metrics
-from .models import ConvergenceError, fit_logistic, fit_predict, model_inputs, sigmoid
+from .models import (
+    CALIB_EPS, Calibrator, ConvergenceError, fit_calibrator, fit_gbm, fit_logistic, fit_predict, fold_predict, isotonic_fit,
+    model_inputs, sigmoid,
+)
 from .stats import DeflatedSharpe, deflated_sharpe, expected_max_sharpe, moments, psr
 
 __all__ = [
@@ -21,6 +24,7 @@ __all__ = [
     "PREDICTION_COLUMNS", "EvalResult", "evaluate",
     "Fold", "data_starts", "make_folds", "usable_mask",
     "auc", "classifier_metrics", "daily_pnl", "trading_metrics",
-    "ConvergenceError", "fit_logistic", "fit_predict", "model_inputs", "sigmoid",
+    "CALIB_EPS", "Calibrator", "ConvergenceError", "fit_calibrator", "fit_gbm", "fit_logistic", "fit_predict", "fold_predict",
+    "isotonic_fit", "model_inputs", "sigmoid",
     "DeflatedSharpe", "deflated_sharpe", "expected_max_sharpe", "moments", "psr",
 ]

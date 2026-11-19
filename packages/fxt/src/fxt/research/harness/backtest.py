@@ -71,9 +71,14 @@ def trade_costs(frame: pl.DataFrame, bars: pl.DataFrame, cfg: BacktestConfig, sy
     return f.sort("_row").drop("_row", "_entry_bar", "_exit_bar")
 
 
-def apply_sizer(prob: np.ndarray, cfg: SizerConfig) -> np.ndarray:
+def apply_sizer(prob: np.ndarray, cfg: SizerConfig, prior: float | None = None) -> np.ndarray:
+    """ Sizes in [0, cap]; `prior` (the fold's training base rate) is needed for above_prior. """
     if cfg.rule == "take_all":
         return np.full(len(prob), cfg.cap)
+    if cfg.rule == "above_prior":
+        if prior is None:
+            raise ValueError("above_prior needs the training base rate")
+        return np.where(prob > prior, cfg.cap, 0.0)
     if cfg.rule == "threshold":
         return np.where(prob > cfg.threshold, cfg.cap, 0.0)
     return np.clip((prob - cfg.threshold) / (1 - cfg.threshold), 0.0, 1.0) * cfg.cap
