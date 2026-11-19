@@ -45,6 +45,10 @@ reader = "python -m fxtapps.dataprep.reader.cli"
 #bars-1h
 
 #{ cmd = "pytest -m slow -s", cwd = "packages/fxt" }
+[tasks.research-chain]
+cmd = "bash scripts/research-chain.sh"
+description = "(research) build the default chain (features, events, touches, labels, weights) and sync the registry; run with: pixi run research-chain EURJPY [GBPJPY ...]"
+
 [tasks.evaluate]
 cmd = "python -m fxtapps.research.evaluate.cli"
 description = "(research) evaluate a strategy (walk-forward CV + backtest), recorded as a trial; run with: pixi run evaluate EURJPY [--model logistic] [--sizer threshold --threshold 0.45] [--side fade]"
