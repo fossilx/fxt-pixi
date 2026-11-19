@@ -64,23 +64,77 @@ def show() -> None:
         console.print("runs: " + ", ".join(f"{s} {n}" for s, n in runs.iter_rows()))
 
 
+RUN_METRICS = ("n_trades", "net_bp", "sharpe_ann", "psr", "dsr")
+
+
+def _config_label(reg, config_hash: str | None) -> str:
+    """ A config's short label (e.g. "logistic", "threshold0.45"), else its class name. """
+    if not config_hash:
+        return ""
+    from fxt.research.models import registry as config_registry
+    c = reg.config(config_hash)
+    if c is None:
+        return config_hash
+    typeid = f"{c['model_type']}@{c['model_version']}"
+    try:
+        return str(config_registry.get_model(typeid).model_validate(c["config"]).label)
+    except Exception:                                   # unknown or changed class: show what's stored
+        return c["model_type"]
+
+
+def _kind(r: dict) -> str:
+    """ trial / control / lockbox, plus the status unless the run finished normally. """
+    kind = "lockbox" if r["is_lockbox"] else r.get("purpose", "trial")
+    return kind if r["status"] == "done" else f"{kind} ({r['status']})"
+
+
 @main.command()
 @click.argument("strategy", required=False)
-def runs(strategy: str | None) -> None:
-    """ List runs (optionally one strategy). """
+@click.option("--controls/--no-controls", default=True, show_default=True, help="include baseline (control) runs")
+@click.option("--wide", is_flag=True, help="also show the data span and notes")
+def runs(strategy: str | None, controls: bool, wide: bool) -> None:
+    """ List runs (optionally one strategy): model, sizer, headline results. """
     with get_registry() as reg:
         df = reg.runs(strategy)
+        if not controls:
+            df = df.filter(pl.col("purpose") != "control")
         trials = reg.trial_count(strategy)
-    if df.is_empty():
+        rows = []
+        for r in df.iter_rows(named=True):
+            cfgs = reg.run_configs(r["run_id"])
+            mets = reg.metrics(r["run_id"]).filter(pl.col("fold").is_null())
+            agg = dict(zip(mets["name"], mets["value"], strict=True))
+            rows.append({**r, "kind": _kind(r), "model": _config_label(reg, cfgs.get("model")),
+                         "sizer": _config_label(reg, cfgs.get("sizer")), **{k: agg.get(k) for k in RUN_METRICS}})
+    if not rows:
         console.print("no runs")
         return
     t = Table(title=f"runs ({trials} trial(s) excl. lockbox; controls don't count)", title_justify="left")
-    cols = ("run_id", "strategy_id", "purpose", "status", "data_start", "data_end", "is_lockbox", "notes")
-    for c in cols:
-        t.add_column(c, overflow="fold")
-    for r in df.select(cols).iter_rows():
-        t.add_row(*("" if v is None else str(v) for v in r))
+    spec = [("run_id", "run_id", None), ("strategy_id", "strategy", None), ("model", "model", None),
+            ("sizer", "sizer", None), ("kind", "kind", None), ("n_trades", "trades", "{:,.0f}"),
+            ("net_bp", "net bp", "{:+.2f}"), ("sharpe_ann", "sharpe", "{:+.2f}"), ("psr", "psr", "{:.3f}"),
+            ("dsr", "dsr*", "{:.3f}")]
+    if wide:
+        spec += [("data_start", "from", None), ("data_end", "to", None), ("notes", "notes", None)]
+    for key, head, fmt in spec:
+        if key == "run_id":                              # never shortened: it's what you copy
+            t.add_column(head, no_wrap=True, min_width=22)
+        elif key == "notes":
+            t.add_column(head, overflow="fold")
+        else:
+            t.add_column(head, no_wrap=True, justify="right" if fmt else "left")
+    for r in rows:
+        cells = []
+        for key, _, fmt in spec:
+            v = r.get(key)
+            if v is None or (isinstance(v, float) and v != v):        # noqa: PLR0124
+                cells.append("")
+            else:
+                cells.append(fmt.format(v) if fmt else str(v))
+        t.add_row(*cells)
     console.print(t)
+    console.print("[dim]* dsr as of when the run finished; `registry run RUN_ID` recomputes it against today's "
+                  "trials. --wide adds the data span and notes.[/]")
 
 
 @main.command()
