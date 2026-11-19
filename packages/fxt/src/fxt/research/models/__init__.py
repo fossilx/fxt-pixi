@@ -18,7 +18,7 @@ from .config import (
     input_hashes_of,
 )
 from .meta import FileRef, ResearchMeta, SymbolKey
-from .events import CusumEventsConfig, EventsMeta, SamplerConfig
+from .events import CusumEventsConfig, EventsMeta, RandomEventsConfig, SamplerConfig
 from .touches import TouchesMeta, TripleBarrierTouchConfig
 from .labels import SIDE_RULES, LabelsMeta, SideLabelsConfig
 from .weights import SampleWeightsConfig, WeightsMeta
@@ -32,7 +32,7 @@ __all__ = [
     "HARNESS_KINDS", "INPUT_SUFFIX", "ConfigHash", "ConfigRuleError", "HarnessConfig", "HashedConfig",
     "StageConfig", "input_hashes_of",
     "FileRef", "ResearchMeta", "SymbolKey",
-    "CusumEventsConfig", "EventsMeta", "SamplerConfig",
+    "CusumEventsConfig", "EventsMeta", "RandomEventsConfig", "SamplerConfig",
     "TouchesMeta", "TripleBarrierTouchConfig",
     "SIDE_RULES", "LabelsMeta", "SideLabelsConfig",
     "SampleWeightsConfig", "WeightsMeta",

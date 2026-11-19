@@ -74,8 +74,8 @@ def runs(strategy: str | None) -> None:
     if df.is_empty():
         console.print("no runs")
         return
-    t = Table(title=f"runs ({trials} trial(s) excl. lockbox)", title_justify="left")
-    cols = ("run_id", "strategy_id", "status", "cv_scheme", "data_start", "data_end", "is_lockbox", "notes")
+    t = Table(title=f"runs ({trials} trial(s) excl. lockbox; controls don't count)", title_justify="left")
+    cols = ("run_id", "strategy_id", "purpose", "status", "data_start", "data_end", "is_lockbox", "notes")
     for c in cols:
         t.add_column(c, overflow="fold")
     for r in df.select(cols).iter_rows():
@@ -93,9 +93,13 @@ def run(run_id: str) -> None:
             raise click.ClickException(f"no run {run_id}")
         cfgs = reg.run_configs(run_id)
         mets = reg.metrics(run_id)
+        dsr_now = _dsr_now(reg, run_id, info.row(0, named=True), mets)
     for k, v in info.row(0, named=True).items():
         console.print(f"[bold]{k:<12}[/] {v}")
     console.print("[bold]configs[/]      " + ", ".join(f"{r}={h}" for r, h in cfgs.items()))
+    if dsr_now is not None:
+        console.print(f"[bold]DSR now[/]      {dsr_now.dsr:.3f} against {dsr_now.n_trials} trials "
+                      f"(expected best daily Sharpe {dsr_now.sr0:.4f}); PSR {dsr_now.psr:.3f}")
     if not mets.is_empty():
         t = Table(title="metrics", title_justify="left")
         names = sorted(set(mets["name"]))
@@ -107,6 +111,19 @@ def run(run_id: str) -> None:
             vals = dict(zip(sub["name"], sub["value"], strict=True))
             t.add_row("all" if fold is None else str(fold), *(f"{vals[n]:.4g}" if n in vals else "" for n in names))
         console.print(t)
+
+
+def _dsr_now(reg, run_id: str, info: dict, mets: pl.DataFrame):
+    """ The run's deflated Sharpe against every trial recorded so far (it changes as trials accrue). """
+    from fxt.research.harness import deflated_sharpe
+    if info.get("purpose", "trial") != "trial" or info["status"] != "done":
+        return None
+    agg = {r["name"]: r["value"] for r in mets.filter(pl.col("fold").is_null()).iter_rows(named=True)}
+    if not all(k in agg for k in ("sharpe_daily", "skew_daily", "kurt_daily", "n_days")):
+        return None
+    return deflated_sharpe(agg["sharpe_daily"], int(agg["n_days"]), agg["skew_daily"], agg["kurt_daily"],
+                           reg.trial_count(include_lockbox=True),
+                           [*reg.trial_metric("sharpe_daily", exclude_run=run_id), agg["sharpe_daily"]])
 
 
 if __name__ == "__main__":

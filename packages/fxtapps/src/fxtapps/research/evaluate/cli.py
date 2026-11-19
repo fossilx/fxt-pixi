@@ -99,7 +99,9 @@ def main(symbol, source, market, labels_hash, side, weights_hash, features_hash,
     console.print(t)
     console.print(f"t (effective n {a.get('n_eff', 0):,.0f}): {_fmt('{:+.2f}', a.get('t_eff'))}   "
                   f"folds net positive: {a['folds_net_positive']:.0f}/{a['n_folds']:.0f}   "
-                  f"calibration error: {_fmt('{:.3f}', a.get('clf_ece'))}   "
+                  f"calibration error: {_fmt('{:.3f}', a.get('clf_ece'))}")
+    console.print(f"PSR (P[Sharpe > 0]): {_fmt('{:.3f}', a.get('psr'))}   "
+                  f"DSR (vs best of {a.get('n_trials', 0):.0f} trials): {_fmt('{:.3f}', a.get('dsr'))}   "
                   f"trials for {res.strategy_id}: {trials}")
 
 

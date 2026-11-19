@@ -27,6 +27,8 @@ import polars as pl
 
 from fxt.research.models import BacktestConfig
 
+from .stats import moments
+
 __all__ = ["auc", "classifier_metrics", "daily_pnl", "trading_metrics"]
 
 EPS = 1e-15
@@ -135,6 +137,10 @@ def trading_metrics(trades: pl.DataFrame, start: datetime, end: datetime, cfg: B
         "avg_hold_hours": float(t.get_column("hours_to_exit").mean()),      # type: ignore[arg-type]
         "sharpe_ann": float(pnl.mean() / sd * math.sqrt(cfg.annualization_days)) if sd > 0 else math.nan,
         "max_dd_bp": 1e4 * float((np.maximum.accumulate(np.concatenate([[0.0], curve]))[1:] - curve).max()),
+        "n_days": float(len(pnl)),
+        "sharpe_daily": moments(pnl)[0],
+        "skew_daily": moments(pnl)[1],
+        "kurt_daily": moments(pnl)[2],
         "n_eff": n_eff,
         "t_eff": float(unit_net.mean() / (sd_trade / math.sqrt(n_eff))) if sd_trade > 0 and n_eff > 0 else math.nan,
     })

@@ -49,6 +49,10 @@ reader = "python -m fxtapps.dataprep.reader.cli"
 cmd = "python -m fxtapps.research.evaluate.cli"
 description = "(research) evaluate a strategy (walk-forward CV + backtest), recorded as a trial; run with: pixi run evaluate EURJPY [--model logistic] [--sizer threshold --threshold 0.45] [--side fade]"
 
+[tasks.random-baseline]
+cmd = "python -m fxtapps.research.random_baseline.cli"
+description = "(research) random-entry baseline: N random strategies like a candidate's labels, evaluated as controls; run with: pixi run random-baseline EURJPY [--seeds 20] [--compare RUN_ID]"
+
 [tasks.registry]
 cmd = "python -m fxtapps.research.registry.cli"
 description = "(research) experiment registry (data/experiments.db); run with: pixi run registry sync|show|runs [STRATEGY]|run RUN_ID"

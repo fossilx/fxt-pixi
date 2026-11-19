@@ -34,7 +34,7 @@ import polars as pl
 
 from fxt.research.models import BacktestConfig, ModelConfig, SizerConfig, WalkForwardConfig
 from fxt.research.paths import Research
-from fxt.research.registry import Registry
+from fxt.research.registry import Registry, RunPurpose
 from fxt.research.store import code_version
 
 from .backtest import apply_sizer, simulate, trade_costs
@@ -42,6 +42,7 @@ from .dataset import Dataset
 from .folds import make_folds, usable_mask, year_span
 from .metrics import classifier_metrics, trading_metrics
 from .models import fit_predict
+from .stats import deflated_sharpe, psr
 
 __all__ = ["EvalResult", "PREDICTION_COLUMNS", "evaluate"]
 
@@ -84,6 +85,7 @@ def evaluate(
     registry: Registry | None,
     research: Research | None = None,
     notes: str | None = None,
+    purpose: RunPurpose = "trial",
     log: Callable[[str], None] = _quiet,
 ) -> EvalResult:
     sizer = sizer or SizerConfig()
@@ -110,7 +112,7 @@ def evaluate(
         run_id = registry.start_run(
             ds.strategy_id, [ds.symbol], configs, cv_scheme=cv.scheme,
             data_start=first_used.date().isoformat() if first_used else "", data_end=test_end.date().isoformat(),
-            is_lockbox=lockbox, git_commit=code_version(), notes=notes)
+            is_lockbox=lockbox, git_commit=code_version(), notes=notes, purpose=purpose)
         log(f"run {run_id}: {ds.strategy_id} / {model.label} / {sizer.label}")
 
     try:
@@ -154,6 +156,14 @@ def evaluate(
         agg["clf_auc"] = float(np.mean([r["clf_auc"] for r in fold_rows]))
         agg["clf_auc_unweighted"] = float(np.mean([r["clf_auc_unweighted"] for r in fold_rows]))
         agg.update(trading_metrics(trades, year_span(folds[0].test_year)[0], test_end, backtest))
+        #! deflated Sharpe: against the best daily Sharpe expected from this many skill-less trials
+        sr, sk, ku, nd = (agg.get(k, math.nan) for k in ("sharpe_daily", "skew_daily", "kurt_daily", "n_days"))
+        agg["psr"] = psr(sr, int(nd) if _finite(nd) else 0, sk, ku)
+        if registry is not None and purpose == "trial":
+            d = deflated_sharpe(sr, int(nd), sk, ku, registry.trial_count(include_lockbox=True),
+                                [*registry.trial_metric("sharpe_daily", exclude_run=run_id), sr])
+            agg.update({"dsr": d.dsr, "sr0_daily": d.sr0, "n_trials": float(d.n_trials),
+                        "var_sr_trials": d.var_sr})
         agg["n_folds"] = float(len(folds))
         agg["folds_net_positive"] = float(sum(r.get("net_bp", 0) > 0 for r in fold_rows))
 

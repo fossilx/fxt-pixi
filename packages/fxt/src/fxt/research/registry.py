@@ -9,8 +9,9 @@ Two halves:
   are the source of truth.
 - runs / run_configs / metrics: one row per evaluation through the harness.
   These exist nowhere else, which is why the registry lives outside
-  data/research and must never be deleted with research outputs. Every run
-  counts as a trial (failed and abandoned ones too) for the deflated Sharpe.
+  data/research and must never be deleted with research outputs. Every trial
+  run counts (failed and abandoned ones too) for the deflated Sharpe; baselines are
+  recorded with purpose="control" and don't count.
 
     with Registry("data/experiments.db") as reg:
         reg.sync(research)                                   # index data/research
@@ -43,9 +44,10 @@ import polars as pl
 from .models import HashedConfig
 from .paths import Research, Stage
 
-__all__ = ["LockboxAlreadyUsed", "Registry", "SCHEMA_VERSION", "SyncReport"]
+__all__ = ["LockboxAlreadyUsed", "Registry", "RunPurpose", "SCHEMA_VERSION", "SyncReport"]
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+RunPurpose = Literal["trial", "control"]
 RunStatus = Literal["running", "done", "failed", "abandoned"]
 
 _SCHEMA = """
@@ -88,7 +90,8 @@ CREATE TABLE IF NOT EXISTS runs (           -- one evaluation through the harnes
     status        TEXT NOT NULL,            -- running, done, failed, abandoned
     notes         TEXT,
     started_at    TEXT NOT NULL,
-    finished_at   TEXT
+    finished_at   TEXT,
+    purpose       TEXT NOT NULL DEFAULT 'trial'   -- trial (counts toward multiple testing) or control (a baseline)
 );
 CREATE TABLE IF NOT EXISTS run_configs (    -- every config a run used, by role
     run_id        TEXT NOT NULL REFERENCES runs,
@@ -144,6 +147,10 @@ class Registry:
         if version > SCHEMA_VERSION:
             raise RuntimeError(f"{self.path} has schema v{version}; this code knows v{SCHEMA_VERSION}")
         self.con.executescript(_SCHEMA)
+        if version == 1:                                  # v1 -> v2: runs.purpose
+            cols = {r["name"] for r in self.con.execute("PRAGMA table_info(runs)")}
+            if "purpose" not in cols:
+                self.con.execute("ALTER TABLE runs ADD COLUMN purpose TEXT NOT NULL DEFAULT 'trial'")
         self.con.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
     def close(self) -> None:
@@ -243,8 +250,15 @@ class Registry:
         is_lockbox: bool = False,
         git_commit: str | None = None,
         notes: str | None = None,
+        purpose: RunPurpose = "trial",
     ) -> str:
-        """ Open a run (status 'running'). `configs` = {role: config_hash} for everything it uses. """
+        """ Open a run (status 'running'). `configs` = {role: config_hash} for everything it uses.
+            purpose="control" marks a baseline (e.g. random entry): recorded, never counted as a trial.
+        """
+        if purpose not in ("trial", "control"):
+            raise ValueError(f"purpose must be 'trial' or 'control', got {purpose!r}")
+        if is_lockbox and purpose != "trial":
+            raise ValueError("a lockbox run is always a trial")
         if is_lockbox:
             prev = self.con.execute(
                 "SELECT run_id, status, started_at FROM runs WHERE strategy_id = ? AND is_lockbox = 1",
@@ -256,9 +270,11 @@ class Registry:
         run_id = f"{datetime.now(UTC):%Y%m%dT%H%M%S}-{secrets.token_hex(3)}"
         self.con.execute("BEGIN")
         try:
-            self.con.execute("INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, NULL)",
-                             (run_id, strategy_id, json.dumps(list(symbols)), cv_scheme, data_start, data_end,
-                              int(is_lockbox), git_commit, notes, _now()))
+            self.con.execute(
+                "INSERT INTO runs (run_id, strategy_id, symbols, cv_scheme, data_start, data_end, is_lockbox, "
+                "git_commit, status, notes, started_at, purpose) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)",
+                (run_id, strategy_id, json.dumps(list(symbols)), cv_scheme, data_start, data_end,
+                 int(is_lockbox), git_commit, notes, _now(), purpose))
             for role, h in configs.items():
                 self.con.execute("INSERT INTO run_configs VALUES (?, ?, ?)", (run_id, role, h))
             self.con.execute("COMMIT")
@@ -295,11 +311,21 @@ class Registry:
     #~ queries
     #~----------------------------------------------------------------------(70)
     def trial_count(self, strategy_id: str | None = None, *, include_lockbox: bool = False) -> int:
-        """ Every run counts, failed and abandoned included (spec §9.4). """
-        sql = "SELECT COUNT(*) FROM runs WHERE (? IS NULL OR strategy_id = ?)"
+        """ Every trial run counts, failed and abandoned included (spec §9.6); controls don't. """
+        sql = "SELECT COUNT(*) FROM runs WHERE purpose = 'trial' AND (? IS NULL OR strategy_id = ?)"
         if not include_lockbox:
             sql += " AND is_lockbox = 0"
         return self.con.execute(sql, (strategy_id, strategy_id)).fetchone()[0]
+
+    def trial_metric(self, name: str, *, exclude_run: str | None = None) -> list[float]:
+        """ The aggregate value of metric `name` for every finished trial (not lockbox, not
+            control), e.g. every trial's daily Sharpe for the deflated Sharpe ratio.
+        """
+        rows = self.con.execute("""
+            SELECT m.value FROM metrics m JOIN runs r USING (run_id)
+            WHERE m.name = ? AND m.fold IS NULL AND r.purpose = 'trial' AND r.is_lockbox = 0
+              AND r.status = 'done' AND r.run_id IS NOT ?""", (name, exclude_run)).fetchall()
+        return [r[0] for r in rows]
 
     def query(self, sql: str, params: tuple | dict = ()) -> pl.DataFrame:
         cur = self.con.execute(sql, params)

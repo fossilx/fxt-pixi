@@ -7,6 +7,7 @@ fxt.research.models.events.
 
     contract.py  core event columns, @register_sampler, check_detected
     cusum.py     detect_cusum (registered for CusumEventsConfig), event_stats
+    random_entry.py  detect_random (registered for RandomEventsConfig): the random-entry baseline
     build.py     build_events (reads the lake, writes research tables)
 '''
 #=================================================================================(80)
@@ -20,10 +21,12 @@ from .contract import (
     register_sampler,
 )
 from .cusum import CUSUM_SCHEMA, detect_cusum, event_stats, prepare_bars
+from .random_entry import RANDOM_SCHEMA, detect_random, splitmix64, uniform_draws
 
 __all__ = [
     "EventsBuild", "InputBarsError", "build_events", "event_ids", "load_bars",
     "CORE_COLUMNS", "DETECT_CORE_SCHEMA", "SAMPLERS", "EventContractError", "check_detected",
     "get_sampler", "register_sampler",
     "CUSUM_SCHEMA", "detect_cusum", "event_stats", "prepare_bars",
+    "RANDOM_SCHEMA", "detect_random", "splitmix64", "uniform_draws",
 ]

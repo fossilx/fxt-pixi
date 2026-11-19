@@ -11,6 +11,7 @@ one touch pass (spec §6.1).
 
     SamplerConfig       base for every sampler's config (bar interval, sampler name)
     CusumEventsConfig   two-sided CUSUM on vol-normalized bar returns
+    RandomEventsConfig  random entries at a fixed rate (the random-entry baseline, spec §9.6)
     EventsMeta          metadata for every events file (any sampler)
 
 Adding a sampler: subclass SamplerConfig (set `sampler`, add its parameters,
@@ -34,7 +35,7 @@ from ._registry import registry
 from .config import StageConfig
 from .meta import ResearchMeta
 
-__all__ = ["CusumEventsConfig", "EventsMeta", "SamplerConfig"]
+__all__ = ["CusumEventsConfig", "EventsMeta", "RandomEventsConfig", "SamplerConfig"]
 
 
 class SamplerConfig(StageConfig):
@@ -102,6 +103,33 @@ class CusumEventsConfig(SamplerConfig):
     def label(self) -> str:
         """ Short human-readable id, e.g. "cusum_h3" (not part of the hash). """
         return f"cusum_h{self.h:g}"
+#
+
+
+@registry.register("RandomEventsConfig", 1)
+class RandomEventsConfig(SamplerConfig):
+    """ Random entries: each bar close fires with probability `fire_prob`, in a random
+        direction (+1 / -1 equally likely).
+
+    The random-entry baseline (spec §9.6): run through the same touch pass, labels,
+    weights and harness as a real strategy, it gives the result of trading at the
+    same frequency with the same barriers and holding period but no information.
+    One seed is one draw; the baseline is the distribution over many seeds.
+
+    The draw for a bar depends only on (seed, bar open time), never on its position
+    in the data, so adding or removing other bars doesn't move any event.
+    No events in the first `warmup` bars (the touch pass needs vol history).
+    """
+    sampler = "random"
+
+    fire_prob: float = Field(0.0935, gt=0, le=1)   # per bar; CUSUM h=3 on EURJPY: 7,516 / 80,441 bars
+    seed: int = Field(0, ge=0)
+    warmup: int = Field(48, ge=0)
+
+    @property
+    def label(self) -> str:
+        """ e.g. "random_p0.0935_s0" (not part of the hash). """
+        return f"random_p{self.fire_prob:g}_s{self.seed}"
 #
 
 
