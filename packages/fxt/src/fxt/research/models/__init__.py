@@ -22,7 +22,9 @@ from .events import CusumEventsConfig, EventsMeta, RandomEventsConfig, SamplerCo
 from .touches import TouchesMeta, TripleBarrierTouchConfig
 from .labels import SIDE_RULES, LabelsMeta, SideLabelsConfig
 from .weights import SampleWeightsConfig, WeightsMeta
-from .features import BarFeaturesConfig, FeatureSetConfig, FeaturesMeta, TrendFeaturesConfig
+from .features import (
+    BarFeaturesConfig, FeatureSetConfig, FeaturesMeta, FlowFeaturesConfig, TrendFeaturesConfig,
+)
 from .harness import (
     OUTCOME_CLASSES, BacktestConfig, GBMModelConfig, GBMMulticlassModelConfig, LogisticModelConfig, LogisticModelConfigV1, ModelConfig, SizerConfig, TakeAllModelConfig, WalkForwardConfig,
 )
@@ -36,7 +38,7 @@ __all__ = [
     "TouchesMeta", "TripleBarrierTouchConfig",
     "SIDE_RULES", "LabelsMeta", "SideLabelsConfig",
     "SampleWeightsConfig", "WeightsMeta",
-    "BarFeaturesConfig", "FeatureSetConfig", "FeaturesMeta", "TrendFeaturesConfig",
+    "BarFeaturesConfig", "FeatureSetConfig", "FeaturesMeta", "FlowFeaturesConfig", "TrendFeaturesConfig",
     "OUTCOME_CLASSES", "BacktestConfig", "GBMModelConfig", "GBMMulticlassModelConfig", "LogisticModelConfig", "LogisticModelConfigV1", "ModelConfig", "SizerConfig", "TakeAllModelConfig",
     "WalkForwardConfig",
 ]

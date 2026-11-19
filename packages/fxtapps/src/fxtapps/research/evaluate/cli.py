@@ -10,7 +10,7 @@
     pixi run evaluate EURJPY --model gbm3 --sizer expected_value  # pt / sl / timeout, trade if edge beats cost
     pixi run evaluate EURJPY --side fade
     pixi run evaluate EURJPY --labels 3b896dab2027 --use ret_24h_z,vol_ratio_24h_120h
-    pixi run evaluate EURJPY --features 816950fa181b              # baseline set only (default: baseline + trend)
+    pixi run evaluate EURJPY --features 816950fa181b              # baseline set only (default: all three sets)
     pixi run evaluate EURJPY --lockbox                        # ONE look per strategy, ever
 """
 from __future__ import annotations
@@ -52,7 +52,7 @@ def _fmt(fmt: str, v) -> str:
 @click.option("--side", type=click.Choice(["follow", "fade"]), default="follow", show_default=True)
 @click.option("--weights", "weights_hash", help="weights config hash (default: the default for the labels)")
 @click.option("--features", "features_hashes", multiple=True,
-              help="features config hash; repeat for several (default: baseline + trend)")
+              help="features config hash; repeat for several (default: baseline + trend + flow)")
 @click.option("--model", type=click.Choice(["take_all", "logistic", "gbm", "gbm3"]), default="take_all",
               show_default=True, help="gbm3 = multiclass (stop-loss / timeout / profit-take)")
 @click.option("--calibration", type=click.Choice(["platt", "isotonic", "none"]), default="platt", show_default=True,

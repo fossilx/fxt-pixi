@@ -1,8 +1,8 @@
 """ Feature table: per-bar features in long format, shared by every strategy.
     Writes data/research/features (ML pipeline spec §4).
 
-    pixi run features EURJPY                 # both sets: baseline (24h / 120h) and trend
-    pixi run features EURJPY --set trend     # one set
+    pixi run features EURJPY                 # all sets: baseline (24h / 120h), trend, flow
+    pixi run features EURJPY --set flow      # one set (flow reads the 1MIN bars)
     pixi run features EURJPY --set baseline --short 12 --long 72
     pixi run features EURJPY --dry-run       # coverage and distributions only
 """
@@ -14,7 +14,7 @@ from rich.table import Table
 
 from fxt.research.events import InputBarsError
 from fxt.research.features import build_features
-from fxt.research.models import BarFeaturesConfig, TrendFeaturesConfig
+from fxt.research.models import BarFeaturesConfig, FlowFeaturesConfig, TrendFeaturesConfig
 
 console = Console()
 
@@ -25,8 +25,8 @@ console = Console()
 @click.option("--market", default="forex", show_default=True)
 @click.option("--short", "short", type=int, default=None, help="short window in bars (default 24)")
 @click.option("--long", "long_", type=int, default=None, help="long window in bars (default 120)")
-@click.option("--set", "sets", default="baseline,trend", show_default=True,
-              help="comma-separated feature sets: baseline, trend")
+@click.option("--set", "sets", default="baseline,trend,flow", show_default=True,
+              help="comma-separated feature sets: baseline, trend, flow")
 @click.option("--dry-run", is_flag=True)
 def main(symbols, source, market, short, long_, sets, dry_run) -> None:
     kw = {k: v for k, v in (("short", short), ("long", long_)) if v is not None}
@@ -36,6 +36,8 @@ def main(symbols, source, market, short, long_, sets, dry_run) -> None:
             configs.append(BarFeaturesConfig(**kw))
         elif name == "trend":
             configs.append(TrendFeaturesConfig())
+        elif name == "flow":
+            configs.append(FlowFeaturesConfig())
         else:
             raise click.BadParameter(f"unknown feature set {name!r}", param_hint="--set")
     for cfg in configs:

@@ -30,12 +30,14 @@ from fxt.lake.models import CheckRecord
 from fxt.lake.paths import Lake
 from fxt.research.events.build import load_bars
 from fxt.research.models import (
-    BarFeaturesConfig, FeatureSetConfig, FeaturesMeta, FileRef, SymbolKey, TrendFeaturesConfig,
+    BarFeaturesConfig, FeatureSetConfig, FeaturesMeta, FileRef, FlowFeaturesConfig, SymbolKey,
+    TrendFeaturesConfig,
 )
 from fxt.research.paths import Research
 from fxt.research.store import code_version, file_ref, write_table
 
 from .baseline import compute_features
+from .flow import compute_flow
 from .trend import compute_trend
 
 __all__ = ["FEATURE_BUILDERS", "FeaturesBuild", "build_features", "check_features", "feature_stats"]
@@ -44,6 +46,7 @@ __all__ = ["FEATURE_BUILDERS", "FeaturesBuild", "build_features", "check_feature
 FEATURE_BUILDERS: dict[type[FeatureSetConfig], Callable[..., pl.DataFrame]] = {
     BarFeaturesConfig: compute_features,
     TrendFeaturesConfig: compute_trend,
+    FlowFeaturesConfig: compute_flow,
 }
 
 
@@ -116,7 +119,9 @@ def build_features(
     checks = check_features(long, config)
     if failed := [c.name for c in checks if not c.ok]:
         raise AssertionError(f"feature invariants failed: {failed}")
-    stats = feature_stats(long, bars.height, config.names())
+    #! coverage is per output bar: hourly features from minute bars are counted per hour
+    n_points = bars.height if interval == "1HOUR" else long.get_column("bar_time").n_unique()
+    stats = feature_stats(long, n_points, config.names())
     h = config.config_hash()
     log(f"{symbol}: {long.height} feature values ({len(config.names())} names), config={h}")
 

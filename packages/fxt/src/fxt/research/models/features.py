@@ -10,6 +10,8 @@ a new name, never a schema change.
     BarFeaturesConfig   the baseline set: returns, vol, spread, ticks, calendar
     TrendFeaturesConfig directional set: distance from moving averages, range position,
                         trend efficiency, return since the UTC day began
+    FlowFeaturesConfig  order-flow set from 1MIN bars: quoted-depth imbalance, tick-direction
+                        and activity-weighted direction imbalance, activity and spread surges
     FeaturesMeta        metadata for every features file (adds the feature names)
 
 Signed features: a feature is *signed* when its sign says which way price went
@@ -35,7 +37,7 @@ from ._registry import registry
 from .config import StageConfig
 from .meta import ResearchMeta
 
-__all__ = ["BarFeaturesConfig", "FeatureSetConfig", "FeaturesMeta", "TrendFeaturesConfig"]
+__all__ = ["BarFeaturesConfig", "FeatureSetConfig", "FeaturesMeta", "FlowFeaturesConfig", "TrendFeaturesConfig"]
 
 
 class FeatureSetConfig(StageConfig):
@@ -171,6 +173,63 @@ class TrendFeaturesConfig(FeatureSetConfig):
     @property
     def label(self) -> str:
         return f"trend_{'_'.join(str(x) for x in self.windows)}h"
+#
+
+
+@registry.register("FlowFeaturesConfig", 1)
+class FlowFeaturesConfig(FeatureSetConfig):
+    """ Order-flow features from 1MIN bars, valid at each hourly bar's close (bar_time).
+
+    Minutes are grouped into their clock hour (the hourly bar they belong to); windows
+    count hours of data, include the hour itself and need `min_coverage` of their hours.
+    A minute's direction is the sign of its mid_close change from the previous minute;
+    changes across a gap longer than `max_gap_minutes` don't count. bid_volume /
+    ask_volume are Dukascopy's quoted sizes at the best bid / ask, summed over ticks:
+    a measure of resting depth on each side, not traded volume.
+
+        depth_imb_{w}h      (sum bid_volume - sum ask_volume) / (sum of both), in [-1, 1]
+        tick_imb_{w}h       (up minutes - down minutes) / (up + down minutes), in [-1, 1]
+        flow_imb_{w}h       sum(direction x tick_count) / sum(tick_count): direction weighted
+                            by activity, in [-1, 1]
+        depth_imb_1h_dev    depth_imb_1h minus its mean over the last `dev_window` hours
+                            (quoted depth can lean one way for long stretches)
+        activity_1h_{a}h    ticks in the hour / mean ticks per hour over `activity_window` hours
+        spread_1h_{a}h      the hour's mean spread / mean over `activity_window` hours
+
+    Signed (side-alignable): the three imbalances and depth_imb_1h_dev.
+    """
+    feature_set: Literal["flow"] = "flow"
+    interval: Literal["1MIN"] = "1MIN"                         # source bars; output is hourly
+    windows: tuple[int, ...] = (1, 4, 24)                      # hours
+    dev_window: int = Field(120, ge=2)
+    activity_window: int = Field(24, ge=2)
+    max_gap_minutes: float = Field(5.0, gt=0)
+    min_coverage: float = Field(0.9, gt=0, le=1)
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if not self.windows or any(w < 1 for w in self.windows):
+            raise ValueError("windows must be hour counts >= 1")
+        if list(self.windows) != sorted(set(self.windows)):
+            raise ValueError("windows must be distinct and increasing")
+        return self
+
+    def _imbalances(self) -> list[str]:
+        return [f"{k}_imb_{w}h" for k in ("depth", "tick", "flow") for w in self.windows]
+
+    def names(self) -> tuple[str, ...]:
+        a = self.activity_window
+        return (*self._imbalances(), "depth_imb_1h_dev", f"activity_1h_{a}h", f"spread_1h_{a}h")
+
+    def signed_names(self) -> tuple[str, ...]:
+        return (*self._imbalances(), "depth_imb_1h_dev")
+
+    def bar_columns(self) -> tuple[str, ...]:
+        return ("time", "mid_close", "bid_volume", "ask_volume", "tick_count", "spread_mean")
+
+    @property
+    def label(self) -> str:
+        return f"flow_{'_'.join(str(x) for x in self.windows)}h"
 #
 
 

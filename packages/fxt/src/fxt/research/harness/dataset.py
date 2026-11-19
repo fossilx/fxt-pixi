@@ -9,12 +9,13 @@ Assembles one strategy's training table for the harness: labels + weights + touc
     ds.frame            one row per labeled event (insufficient rows dropped), sorted by t0
     ds.feature_names    every feature name, in order (one or more feature sets)
     ds.signed_names     the subset whose sign carries direction (side-alignable, spec §8.1)
-    ds.hashes           {"events", "touches", "labels", "weights", "features", "features_trend", ...}
+    ds.hashes           {"events", "touches", "labels", "weights", "features", "features_trend",
+                         "features_flow", ...}
                         -> config hash; the baseline set's role is "features", any other set's
                         "features_<feature_set>"
 
 Weights default to SampleWeightsConfig(labels_hash=...). Features default to
-default_features(): the baseline set and the trend set, both with default configs.
+default_features(): the baseline, trend and flow sets, all with default configs.
 '''
 #=================================================================================(80)
 #
@@ -30,7 +31,7 @@ import polars as pl
 from fxt.lake.paths import Lake
 from fxt.research.events.build import load_bars
 from fxt.research.features.matrix import features_at, to_wide
-from fxt.research.models import BarFeaturesConfig, SampleWeightsConfig, TrendFeaturesConfig
+from fxt.research.models import BarFeaturesConfig, FlowFeaturesConfig, SampleWeightsConfig, TrendFeaturesConfig
 from fxt.research.models import registry as config_registry
 from fxt.research.paths import Research, Stage
 from fxt.research.store import read_meta
@@ -41,8 +42,9 @@ BAR_QUOTE_COLUMNS = ("time", "bid_close", "ask_close", "mid_close", "spread_mean
 
 
 def default_features() -> tuple[str, ...]:
-    """ The default feature configs' hashes: baseline + trend. """
-    return (BarFeaturesConfig().config_hash(), TrendFeaturesConfig().config_hash())
+    """ The default feature configs' hashes: baseline + trend + flow. """
+    return (BarFeaturesConfig().config_hash(), TrendFeaturesConfig().config_hash(),
+            FlowFeaturesConfig().config_hash())
 
 
 class InputDatasetError(ValueError):

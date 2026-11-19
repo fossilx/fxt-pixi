@@ -6,7 +6,7 @@
 #   pixi run research-chain EURJPY GBPJPY
 #
 # Steps (each uses the previous step's default config, so they form one chain):
-#   1. features       baseline + trend feature sets       (reads 1HOUR bars only)
+#   1. features       baseline, trend, flow feature sets  (reads 1HOUR bars; flow reads 1MIN)
 #   2. events-cusum   CUSUM h=3 events                    (reads 1HOUR bars)
 #   3. touches        triple-barrier touch pass k=1 N=48  (reads events, 1HOUR + 1MIN bars, ticks for ties)
 #   4. labels         side labels: follow and fade        (reads touches)
