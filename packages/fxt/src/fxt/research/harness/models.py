@@ -3,6 +3,7 @@ models
 
 Meta-model fit/predict for the harness. Pure numpy; deterministic.
 
+    X, cols = model_inputs(frame, names, signed, side_inputs)   # the model's input matrix
     p_test = fit_predict(cfg, X_train, y_train, w_train, X_test)
 '''
 #=================================================================================(80)
@@ -13,10 +14,35 @@ Meta-model fit/predict for the harness. Pure numpy; deterministic.
 from __future__ import annotations
 
 import numpy as np
+import polars as pl
 
-from fxt.research.models import LogisticModelConfig, ModelConfig, TakeAllModelConfig
+from fxt.research.models import LogisticModelConfig, LogisticModelConfigV1, ModelConfig, TakeAllModelConfig
 
-__all__ = ["ConvergenceError", "fit_logistic", "fit_predict", "sigmoid"]
+__all__ = ["ConvergenceError", "fit_logistic", "fit_predict", "model_inputs", "sigmoid"]
+
+
+def model_inputs(frame: pl.DataFrame, names: list[str], signed: tuple[str, ...] | list[str],
+                 side_inputs: str) -> tuple[np.ndarray, list[str]]:
+    """ The model's input matrix and column names.
+
+        side_inputs="aligned": every signed feature enters as side x value (named
+        "<name>*side"), unsigned ones as stored, plus a `side` column. Meta-labels are
+        side-adjusted, so aligning makes "ran up before a long" and "ran down before a
+        short" the same input. "none": features as stored, no side.
+    """
+    if side_inputs == "none":
+        cols = list(names)
+        exprs = [pl.col(n) for n in names]
+    elif side_inputs == "aligned":
+        sset = set(signed)
+        cols = [f"{n}*side" if n in sset else n for n in names] + ["side"]
+        exprs = [(pl.col(n) * pl.col("side")).alias(f"{n}*side") if n in sset else pl.col(n) for n in names]
+        exprs.append(pl.col("side").cast(pl.Float64))
+    else:
+        raise ValueError(f"unknown side_inputs {side_inputs!r}")
+    if not exprs:
+        return np.zeros((frame.height, 0)), []
+    return frame.select(exprs).to_numpy().astype(float), cols
 
 
 class ConvergenceError(RuntimeError):
@@ -90,7 +116,7 @@ def fit_predict(cfg: ModelConfig, X_train: np.ndarray, y_train: np.ndarray, w_tr
     y = y_train.astype(float)
     if isinstance(cfg, TakeAllModelConfig):
         return np.full(len(X_test), float((w_train * y).sum() / w_train.sum()))
-    if isinstance(cfg, LogisticModelConfig):
+    if isinstance(cfg, LogisticModelConfig | LogisticModelConfigV1):
         Ztr, Zte = _standardize(X_train, w_train, X_test)
         beta = fit_logistic(Ztr, y, w_train, l2=cfg.l2, max_iter=cfg.max_iter, tol=cfg.tol)
         return sigmoid(Zte @ beta)

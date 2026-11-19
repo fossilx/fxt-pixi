@@ -8,7 +8,7 @@ the hashes it used (`run_configs`).
     WalkForwardConfig     cv: lockbox, test years, purge/embargo, start-of-data drop
     BacktestConfig        backtest: costs (bid/ask, slippage, commission), position cap
     TakeAllModelConfig    model: no model; predicts the training base rate
-    LogisticModelConfig   model: L2 logistic regression on standardized features
+    LogisticModelConfig   model: L2 logistic regression on standardized features (v2: side inputs)
     SizerConfig           sizer: take_all / threshold / linear
 '''
 #=================================================================================(80)
@@ -25,8 +25,8 @@ from pydantic import Field, model_validator
 from ._registry import registry
 from .config import HarnessConfig
 
-__all__ = ["BacktestConfig", "LogisticModelConfig", "ModelConfig", "SizerConfig", "TakeAllModelConfig",
-           "WalkForwardConfig"]
+__all__ = ["BacktestConfig", "LogisticModelConfig", "LogisticModelConfigV1", "ModelConfig", "SizerConfig",
+           "TakeAllModelConfig", "WalkForwardConfig"]
 
 
 @registry.register("WalkForwardConfig", 1)
@@ -135,13 +135,9 @@ class TakeAllModelConfig(ModelConfig):
 
 
 @registry.register("LogisticModelConfig", 1)
-class LogisticModelConfig(ModelConfig):
-    """ L2-penalized logistic regression, fitted by Newton's method on features standardized
-        with the training fold's (weighted) mean and std. Missing values -> the training mean.
-
-        features  feature names to use; () = every feature of the features config
-        l2        penalty on the coefficients (not the intercept), in units of the
-                  total sample weight: loss = mean weighted log loss + l2/2 * |beta|^2
+class LogisticModelConfigV1(ModelConfig):
+    """ v1, kept so recorded runs can be read back: no side inputs (signed features are fed
+        as-is and `side` isn't an input, so the model can't learn direction). Use v2.
     """
     features: tuple[str, ...] = ()
     l2: float = Field(1e-2, ge=0)
@@ -149,8 +145,37 @@ class LogisticModelConfig(ModelConfig):
     tol: float = Field(1e-10, gt=0)
 
     @property
+    def side_inputs(self) -> str:
+        return "none"
+
+    @property
     def label(self) -> str:
-        return "logistic"
+        return "logistic_v1"
+#
+
+
+@registry.register("LogisticModelConfig", 2)
+class LogisticModelConfig(ModelConfig):
+    """ L2-penalized logistic regression, fitted by Newton's method on features standardized
+        with the training fold's (weighted) mean and std. Missing values -> the training mean.
+
+        features     feature names to use; () = every feature of the dataset
+        side_inputs  "aligned" (default): signed features enter as side x value, plus `side`
+                     itself, so "price ran up before a long" and "price ran down before a
+                     short" look the same to the model (meta-labels are side-adjusted).
+                     "none": features as stored, no side (v1 behaviour)
+        l2           penalty on the coefficients (not the intercept), in units of the
+                     total sample weight: loss = mean weighted log loss + l2/2 * |beta|^2
+    """
+    features: tuple[str, ...] = ()
+    side_inputs: Literal["aligned", "none"] = "aligned"
+    l2: float = Field(1e-2, ge=0)
+    max_iter: int = Field(50, ge=1)
+    tol: float = Field(1e-10, gt=0)
+
+    @property
+    def label(self) -> str:
+        return "logistic" if self.side_inputs == "aligned" else "logistic_noside"
 #
 
 

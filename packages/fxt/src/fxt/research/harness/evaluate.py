@@ -41,7 +41,7 @@ from .backtest import apply_sizer, simulate, trade_costs
 from .dataset import Dataset
 from .folds import make_folds, usable_mask, year_span
 from .metrics import classifier_metrics, trading_metrics
-from .models import fit_predict
+from .models import fit_predict, model_inputs
 from .stats import deflated_sharpe, psr
 
 __all__ = ["EvalResult", "PREDICTION_COLUMNS", "evaluate"]
@@ -117,7 +117,7 @@ def evaluate(
 
     try:
         costed = trade_costs(frame, ds.bars, backtest, ds.symbol)
-        X_all = costed.select(names).to_numpy().astype(float) if names else np.zeros((costed.height, 0))
+        X_all, _ = model_inputs(costed, names, ds.signed_names, getattr(model, "side_inputs", "none"))
         y_all = costed.get_column("meta_label").to_numpy()
         w_all = (np.ones(costed.height) if model.sample_weight == "none"
                  else costed.get_column(model.sample_weight).to_numpy().astype(float))

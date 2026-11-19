@@ -21,7 +21,8 @@ from fxt.research.harness import (
 )
 from fxt.research.labels import build_labels, build_touches
 from fxt.research.models import (
-    BacktestConfig, BarFeaturesConfig, CusumEventsConfig, LogisticModelConfig, SampleWeightsConfig,
+    BacktestConfig, BarFeaturesConfig, CusumEventsConfig, LogisticModelConfig, LogisticModelConfigV1,
+    SampleWeightsConfig,
     SideLabelsConfig, SizerConfig, TakeAllModelConfig, TripleBarrierTouchConfig, WalkForwardConfig,
 )
 from fxt.research.registry import LockboxAlreadyUsed, Registry
@@ -374,12 +375,13 @@ def test_unknown_model_feature(ds):
 def test_harness_config_hashes_pinned():
     """ Changing these orphans recorded runs' config rows: bump the class version instead. """
     pinned = {c.get_id(): c.config_hash() for c in (WalkForwardConfig(), BacktestConfig(), TakeAllModelConfig(),
-                                                     LogisticModelConfig(), SizerConfig())}
+                                                     LogisticModelConfigV1(), LogisticModelConfig(), SizerConfig())}
     assert pinned == PINNED
 
 
 PINNED = {"WalkForwardConfig@1": "a3b1afbed6c2", "BacktestConfig@1": "2359a1a61a9b",
           "TakeAllModelConfig@1": "4796d3accfbb", "LogisticModelConfig@1": "4d22b654c996",
+          "LogisticModelConfig@2": "4974f2f66350",
           "SizerConfig@1": "66cedc144eff"}
 
 
@@ -409,7 +411,7 @@ def chain(tmp_path_factory):
 
 def test_load_dataset(chain):
     lb, rs, ev, tc, lc, fc = chain
-    ds = load_dataset(rs, lb.lake, labels_hash=lc.config_hash(), features_hash=fc.config_hash(), **SER)
+    ds = load_dataset(rs, lb.lake, labels_hash=lc.config_hash(), features_hashes=fc.config_hash(), **SER)
     assert ds.strategy_id == "cusum_h3_follow"
     assert ds.hashes == {"events": ev.config_hash(), "touches": tc.config_hash(), "labels": lc.config_hash(),
                          "weights": SampleWeightsConfig(labels_hash=lc.config_hash()).config_hash(),

@@ -91,7 +91,7 @@ def random_baseline(
     symbol: str,
     seeds: Iterable[int],
     fire_prob: float = 0.0935,
-    features_hash: str | None = None,
+    features_hashes: str | tuple[str, ...] | None = None,
     backtest: BacktestConfig | None = None,
     cv: WalkForwardConfig | None = None,
     log: Callable[[str], None] = _quiet,
@@ -124,7 +124,7 @@ def random_baseline(
         if not _built(research, Stage.WEIGHTS, hashes["weights"], keys):
             build_weights(wc, **keys, lake=lake, research=research)
 
-        ds = load_dataset(research, lake, labels_hash=hashes["labels"], features_hash=features_hash, **keys)
+        ds = load_dataset(research, lake, labels_hash=hashes["labels"], features_hashes=features_hashes, **keys)
         configs = {**ds.hashes, "model": model.config_hash(), "sizer": SizerConfig().config_hash(),
                    "backtest": backtest.config_hash(), "cv": cv.config_hash()}
         run_id = _find_control(reg, configs)

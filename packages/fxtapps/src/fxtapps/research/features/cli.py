@@ -1,8 +1,9 @@
 """ Feature table: per-bar features in long format, shared by every strategy.
     Writes data/research/features (ML pipeline spec §4).
 
-    pixi run features EURJPY                 # the baseline set (24h / 120h windows)
-    pixi run features EURJPY --short 12 --long 72
+    pixi run features EURJPY                 # both sets: baseline (24h / 120h) and trend
+    pixi run features EURJPY --set trend     # one set
+    pixi run features EURJPY --set baseline --short 12 --long 72
     pixi run features EURJPY --dry-run       # coverage and distributions only
 """
 from __future__ import annotations
@@ -13,7 +14,7 @@ from rich.table import Table
 
 from fxt.research.events import InputBarsError
 from fxt.research.features import build_features
-from fxt.research.models import BarFeaturesConfig
+from fxt.research.models import BarFeaturesConfig, TrendFeaturesConfig
 
 console = Console()
 
@@ -24,10 +25,24 @@ console = Console()
 @click.option("--market", default="forex", show_default=True)
 @click.option("--short", "short", type=int, default=None, help="short window in bars (default 24)")
 @click.option("--long", "long_", type=int, default=None, help="long window in bars (default 120)")
+@click.option("--set", "sets", default="baseline,trend", show_default=True,
+              help="comma-separated feature sets: baseline, trend")
 @click.option("--dry-run", is_flag=True)
-def main(symbols, source, market, short, long_, dry_run) -> None:
+def main(symbols, source, market, short, long_, sets, dry_run) -> None:
     kw = {k: v for k, v in (("short", short), ("long", long_)) if v is not None}
-    cfg = BarFeaturesConfig(**kw)
+    configs = []
+    for name in (x.strip() for x in sets.split(",") if x.strip()):
+        if name == "baseline":
+            configs.append(BarFeaturesConfig(**kw))
+        elif name == "trend":
+            configs.append(TrendFeaturesConfig())
+        else:
+            raise click.BadParameter(f"unknown feature set {name!r}", param_hint="--set")
+    for cfg in configs:
+        _build(cfg, symbols, source, market, dry_run)
+
+
+def _build(cfg, symbols, source, market, dry_run) -> None:
     for symbol in symbols:
         try:
             res = build_features(cfg, source=source, market=market, symbol=symbol, write=not dry_run,

@@ -203,7 +203,7 @@ def test_random_baseline(chain, tmp_path):
     cv = WalkForwardConfig(lockbox_year=2016, first_test_year=2015, drop_start_days=2)
     with Registry(tmp_path / "x.db") as reg:
         base = random_baseline(rs, lb.lake, reg, like_labels=lc.config_hash(), **SER, seeds=range(2),
-                               fire_prob=0.3, features_hash=fc.config_hash(), cv=cv)
+                               fire_prob=0.3, features_hashes=fc.config_hash(), cv=cv)
         assert base.runs.height == 2 and not base.runs["reused"].any()
         assert reg.trial_count() == 0 and reg.runs()["purpose"].unique().to_list() == ["control"]
         #! same barriers as the candidate, just other events
@@ -214,10 +214,10 @@ def test_random_baseline(chain, tmp_path):
                    {k: v for k, v in tc.payload().items() if k != "events_hash"}
         #! more seeds: the first two are reused, not rebuilt or re-run
         more = random_baseline(rs, lb.lake, reg, like_labels=lc.config_hash(), **SER, seeds=range(3),
-                               fire_prob=0.3, features_hash=fc.config_hash(), cv=cv)
+                               fire_prob=0.3, features_hashes=fc.config_hash(), cv=cv)
         assert more.runs["reused"].to_list() == [True, True, False]
         assert reg.runs().height == 3
-        ds = load_dataset(rs, lb.lake, labels_hash=lc.config_hash(), features_hash=fc.config_hash(), **SER)
+        ds = load_dataset(rs, lb.lake, labels_hash=lc.config_hash(), features_hashes=fc.config_hash(), **SER)
         cand = evaluate(ds, model=TakeAllModelConfig(), cv=cv, registry=reg)
         cmp = compare(more, reg, cand.run_id)
         assert cmp["metric"].to_list() == ["gross_bp", "net_bp", "sharpe_ann", "hit_rate"]

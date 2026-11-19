@@ -7,6 +7,7 @@ carry across years) and writes one file per year of bar_time:
     data/research/features/config=<hash>/source=…/market=…/symbol=…/year=YYYY/SYMBOL-YYYY.parquet
 
     result = build_features(BarFeaturesConfig(), source="dukascopy", market="forex", symbol="EURJPY")
+    result = build_features(TrendFeaturesConfig(), ...)      # any registered feature set
 
 Features don't depend on any strategy: no upstream hash, the only inputs are
 bar files (stamped and passed, all listed in meta.inputs).
@@ -20,6 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 import polars as pl
@@ -27,13 +29,22 @@ import polars as pl
 from fxt.lake.models import CheckRecord
 from fxt.lake.paths import Lake
 from fxt.research.events.build import load_bars
-from fxt.research.models import BarFeaturesConfig, FeaturesMeta, FileRef, SymbolKey
+from fxt.research.models import (
+    BarFeaturesConfig, FeatureSetConfig, FeaturesMeta, FileRef, SymbolKey, TrendFeaturesConfig,
+)
 from fxt.research.paths import Research
 from fxt.research.store import code_version, file_ref, write_table
 
-from .baseline import BAR_COLUMNS, compute_features
+from .baseline import compute_features
+from .trend import compute_trend
 
-__all__ = ["FeaturesBuild", "build_features", "check_features", "feature_stats"]
+__all__ = ["FEATURE_BUILDERS", "FeaturesBuild", "build_features", "check_features", "feature_stats"]
+
+#! one pure compute function per feature-set config class: (bars, cfg, symbol=) -> long
+FEATURE_BUILDERS: dict[type[FeatureSetConfig], Callable[..., pl.DataFrame]] = {
+    BarFeaturesConfig: compute_features,
+    TrendFeaturesConfig: compute_trend,
+}
 
 
 def _quiet(msg: str) -> None: ...
@@ -52,7 +63,7 @@ class FeaturesBuild:
 #
 
 
-def check_features(long: pl.DataFrame, cfg: BarFeaturesConfig) -> tuple[CheckRecord, ...]:
+def check_features(long: pl.DataFrame, cfg: FeatureSetConfig) -> tuple[CheckRecord, ...]:
     tests = {
         "one value per (bar, name)": not long.select("bar_time", "name").is_duplicated().any(),
         "names are the config's":    set(long.get_column("name").unique()) <= set(cfg.names()),
@@ -79,7 +90,7 @@ def _defaults() -> tuple[Lake, Research]:
     return get_lake(), get_research()
 
 def build_features(
-    config: BarFeaturesConfig,
+    config: FeatureSetConfig,
     *,
     source: str,
     market: str,
@@ -95,9 +106,13 @@ def build_features(
         lake, research = lake or dl, research or dr
     ser = {"source": source, "market": market, "symbol": symbol}
 
-    bars, paths = load_bars(lake, **ser, interval=config.interval, columns=BAR_COLUMNS)
-    log(f"{symbol}: {bars.height} {config.interval} bars from {len(paths)} file(s)")
-    long = compute_features(bars, config, symbol=symbol)
+    compute = FEATURE_BUILDERS.get(type(config))
+    if compute is None:
+        raise TypeError(f"no feature builder registered for {type(config).__name__}")
+    interval = config.interval                                            # type: ignore[attr-defined]
+    bars, paths = load_bars(lake, **ser, interval=interval, columns=config.bar_columns())
+    log(f"{symbol}: {bars.height} {interval} bars from {len(paths)} file(s)")
+    long = compute(bars, config, symbol=symbol)
     checks = check_features(long, config)
     if failed := [c.name for c in checks if not c.ok]:
         raise AssertionError(f"feature invariants failed: {failed}")

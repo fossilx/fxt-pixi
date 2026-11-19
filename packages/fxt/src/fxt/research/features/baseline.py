@@ -27,7 +27,7 @@ import polars as pl
 
 from fxt.research.models.features import BarFeaturesConfig
 
-__all__ = ["BAR_COLUMNS", "FEATURE_SCHEMA", "compute_features"]
+__all__ = ["BAR_COLUMNS", "FEATURE_SCHEMA", "compute_features", "prepare", "to_long"]
 
 BAR_COLUMNS = ("time", "mid_close", "spread_mean", "tick_count")
 
@@ -45,15 +45,21 @@ def _utc(col: str, dtype: pl.DataType) -> pl.Expr:
     return t.dt.replace_time_zone("UTC") if dtype.time_zone is None else t.dt.convert_time_zone("UTC")  # type: ignore[union-attr]
 
 
+def prepare(bars: pl.DataFrame, columns: tuple[str, ...]) -> pl.DataFrame:
+    """ The needed bar columns, `time` as UTC microseconds, sorted, no duplicate times. """
+    if missing := set(columns) - set(bars.columns):
+        raise ValueError(f"bars are missing column(s) {sorted(missing)}")
+    df = bars.select(columns).with_columns(_utc("time", bars.schema["time"])).sort("time")
+    if df.get_column("time").is_duplicated().any():
+        raise ValueError("bars have duplicate timestamps")
+    return df
+
+
 def compute_features(bars: pl.DataFrame, cfg: BarFeaturesConfig, *, symbol: str) -> pl.DataFrame:
     """ Long-format features (FEATURE_SCHEMA) for every bar of one symbol, all years at once
         (windows carry across year boundaries).
     """
-    if missing := set(BAR_COLUMNS) - set(bars.columns):
-        raise ValueError(f"bars are missing column(s) {sorted(missing)}")
-    df = bars.select(BAR_COLUMNS).with_columns(_utc("time", bars.schema["time"])).sort("time")
-    if df.get_column("time").is_duplicated().any():
-        raise ValueError("bars have duplicate timestamps")
+    df = prepare(bars, BAR_COLUMNS)
 
     s, lg = cfg.short, cfg.long
     need = lambda w: max(1, math.ceil(cfg.min_coverage * w))
@@ -83,7 +89,13 @@ def compute_features(bars: pl.DataFrame, cfg: BarFeaturesConfig, *, symbol: str)
         df = df.with_columns(pl.col("bar_time").dt.hour().cast(pl.Float64).alias("hour_utc"),
                              pl.col("bar_time").dt.weekday().cast(pl.Float64).alias("dow_utc"))
 
-    names = cfg.names()
+    return to_long(df, cfg.names(), symbol)
+
+
+def to_long(df: pl.DataFrame, names: tuple[str, ...], symbol: str) -> pl.DataFrame:
+    """ Wide per-bar frame (bar_time + one column per name) -> FEATURE_SCHEMA rows,
+        dropping missing and non-finite values, ordered by bar_time then `names`.
+    """
     order = {n: i for i, n in enumerate(names)}
     long = (df.select("bar_time", *names)
               .unpivot(index="bar_time", on=list(names), variable_name="name", value_name="value")

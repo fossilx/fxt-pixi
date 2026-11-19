@@ -22,9 +22,9 @@ from .events import CusumEventsConfig, EventsMeta, RandomEventsConfig, SamplerCo
 from .touches import TouchesMeta, TripleBarrierTouchConfig
 from .labels import SIDE_RULES, LabelsMeta, SideLabelsConfig
 from .weights import SampleWeightsConfig, WeightsMeta
-from .features import BarFeaturesConfig, FeaturesMeta
+from .features import BarFeaturesConfig, FeatureSetConfig, FeaturesMeta, TrendFeaturesConfig
 from .harness import (
-    BacktestConfig, LogisticModelConfig, ModelConfig, SizerConfig, TakeAllModelConfig, WalkForwardConfig,
+    BacktestConfig, LogisticModelConfig, LogisticModelConfigV1, ModelConfig, SizerConfig, TakeAllModelConfig, WalkForwardConfig,
 )
 
 __all__ = [
@@ -36,7 +36,7 @@ __all__ = [
     "TouchesMeta", "TripleBarrierTouchConfig",
     "SIDE_RULES", "LabelsMeta", "SideLabelsConfig",
     "SampleWeightsConfig", "WeightsMeta",
-    "BarFeaturesConfig", "FeaturesMeta",
-    "BacktestConfig", "LogisticModelConfig", "ModelConfig", "SizerConfig", "TakeAllModelConfig",
+    "BarFeaturesConfig", "FeatureSetConfig", "FeaturesMeta", "TrendFeaturesConfig",
+    "BacktestConfig", "LogisticModelConfig", "LogisticModelConfigV1", "ModelConfig", "SizerConfig", "TakeAllModelConfig",
     "WalkForwardConfig",
 ]

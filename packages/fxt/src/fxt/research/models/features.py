@@ -6,8 +6,16 @@ keyed by bar, not by event: computed once per symbol and shared by every
 strategy. Stored long (one row per bar x feature name), so adding a feature is
 a new name, never a schema change.
 
-    BarFeaturesConfig   the first feature set and its windows
+    FeatureSetConfig    base for every feature set (names, which names are signed, bar columns)
+    BarFeaturesConfig   the baseline set: returns, vol, spread, ticks, calendar
+    TrendFeaturesConfig directional set: distance from moving averages, range position,
+                        trend efficiency, return since the UTC day began
     FeaturesMeta        metadata for every features file (adds the feature names)
+
+Signed features: a feature is *signed* when its sign says which way price went
+(a return, a distance above/below an average). Meta-labels are side-adjusted, so
+the harness can feed the model `side x value` for signed features (spec §8.1);
+`signed_names()` says which ones.
 '''
 #=================================================================================(80)
 #
@@ -16,7 +24,8 @@ a new name, never a schema change.
 #=================================================================================(80)
 from __future__ import annotations
 
-from typing import Literal, Self
+import itertools
+from typing import ClassVar, Literal, Self
 
 from pydantic import Field, model_validator
 
@@ -26,11 +35,31 @@ from ._registry import registry
 from .config import StageConfig
 from .meta import ResearchMeta
 
-__all__ = ["BarFeaturesConfig", "FeaturesMeta"]
+__all__ = ["BarFeaturesConfig", "FeatureSetConfig", "FeaturesMeta", "TrendFeaturesConfig"]
+
+
+class FeatureSetConfig(StageConfig):
+    """ Unregistered base for feature-set configs. Every set writes the same long table;
+        sets differ in names. Subclasses register, set the `feature_set` field's Literal,
+        and implement names(); a builder is registered in fxt.research.features.
+    """
+    stage = Stage.FEATURES
+    bar_interval: ClassVar[str] = "1HOUR"
+
+    def names(self) -> tuple[str, ...]:
+        raise NotImplementedError
+
+    def signed_names(self) -> tuple[str, ...]:
+        """ Names whose sign carries direction (side-alignable). """
+        return ()
+
+    def bar_columns(self) -> tuple[str, ...]:
+        return ("time", "mid_close")
+#
 
 
 @registry.register("BarFeaturesConfig", 1)
-class BarFeaturesConfig(StageConfig):
+class BarFeaturesConfig(FeatureSetConfig):
     """ Per-bar features on `interval` bars, valid at each bar's CLOSE (bar_time).
 
     Every window counts bars of data (business hours for 1HOUR), looks only
@@ -49,8 +78,6 @@ class BarFeaturesConfig(StageConfig):
                                 (tick density varies by year: use the ratio, not counts)
         hour_utc, dow_utc       hour (0-23) and weekday (1=Mon .. 7=Sun) of bar_time, UTC
     """
-    stage = Stage.FEATURES
-
     feature_set: Literal["baseline"] = "baseline"             # which builder; new sets get new names
     interval: Literal["1HOUR"] = "1HOUR"
     ret_horizons: tuple[int, ...] = (1, 4, 24, 120)
@@ -80,9 +107,70 @@ class BarFeaturesConfig(StageConfig):
             out += ["hour_utc", "dow_utc"]
         return tuple(out)
 
+    def signed_names(self) -> tuple[str, ...]:
+        return tuple(f"ret_{h}h" for h in self.ret_horizons) + tuple(f"ret_{h}h_z" for h in self.ret_horizons)
+
+    def bar_columns(self) -> tuple[str, ...]:
+        return ("time", "mid_close", "spread_mean", "tick_count")
+
     @property
     def label(self) -> str:
         return f"{self.feature_set}_{self.short}h_{self.long}h"
+#
+
+
+@registry.register("TrendFeaturesConfig", 1)
+class TrendFeaturesConfig(FeatureSetConfig):
+    """ Directional features on 1HOUR bars, valid at each bar's close, every one signed.
+
+    Same conventions as BarFeaturesConfig: windows count bars of data, include the bar
+    itself, look only backwards, and need `min_coverage` of their values. `vol` is the
+    std of 1-bar log returns over `vol_window` bars (gap returns left out), as vol_120h.
+
+        ma_dist_{w}h            log(close / SMA_w(close)) / (vol * sqrt(w))
+        ma_cross_{a}h_{b}h      log(SMA_a / SMA_b) / (vol * sqrt(b)), for consecutive windows a < b
+        range_pos_{w}h          (close - lowest low_w) / (highest high_w - lowest low_w) - 0.5,
+                                in [-0.5, 0.5]: where price sits in its recent range
+        trend_eff_{w}h          log(close / close w bars earlier) / sum of |1-bar log returns|
+                                over those w bars, in [-1, 1]: net move per unit of path
+                                (Kaufman's efficiency ratio, signed)
+        ret_day_z               log(close / open of the UTC day's first bar) / (vol * sqrt(n)),
+                                n = bars so far that day
+    """
+    feature_set: Literal["trend"] = "trend"
+    interval: Literal["1HOUR"] = "1HOUR"
+    windows: tuple[int, ...] = (24, 120)
+    vol_window: int = Field(120, ge=3)
+    max_gap_hours: float = Field(3.0, gt=0)
+    min_coverage: float = Field(0.9, gt=0, le=1)
+    day_return: bool = True
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if not self.windows or any(w < 2 for w in self.windows):
+            raise ValueError("windows must be bar counts >= 2")
+        if list(self.windows) != sorted(set(self.windows)):
+            raise ValueError("windows must be distinct and increasing")
+        return self
+
+    def names(self) -> tuple[str, ...]:
+        w = self.windows
+        out = [f"ma_dist_{x}h" for x in w]
+        out += [f"ma_cross_{a}h_{b}h" for a, b in itertools.pairwise(w)]
+        out += [f"range_pos_{x}h" for x in w] + [f"trend_eff_{x}h" for x in w]
+        if self.day_return:
+            out.append("ret_day_z")
+        return tuple(out)
+
+    def signed_names(self) -> tuple[str, ...]:
+        return self.names()
+
+    def bar_columns(self) -> tuple[str, ...]:
+        return ("time", "mid_open", "mid_high", "mid_low", "mid_close")
+
+    @property
+    def label(self) -> str:
+        return f"trend_{'_'.join(str(x) for x in self.windows)}h"
 #
 
 
