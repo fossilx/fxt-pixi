@@ -19,10 +19,12 @@ import numpy as np
 import polars as pl
 
 from fxt.research.models import (
-    GBMModelConfig, LogisticModelConfig, LogisticModelConfigV1, ModelConfig, TakeAllModelConfig,
+    GBMModelConfig, GBMMulticlassModelConfig, LogisticModelConfig, LogisticModelConfigV1, ModelConfig,
+    TakeAllModelConfig,
 )
 
-__all__ = ["CALIB_EPS", "ConvergenceError", "Calibrator", "fit_calibrator", "fit_gbm", "fit_logistic",
+__all__ = ["CALIB_EPS", "ConvergenceError", "Calibrator", "MulticlassCalibrator", "fit_calibrator", "fit_gbm",
+           "fit_gbm_multiclass", "fit_logistic", "is_multiclass",
            "fit_predict", "fold_predict", "isotonic_fit", "model_inputs", "sigmoid"]
 
 CALIB_EPS = 1e-3                                   # calibrated probabilities stay in [eps, 1 - eps]
@@ -119,12 +121,16 @@ def _standardize(X_train: np.ndarray, w: np.ndarray, X_test: np.ndarray) -> tupl
 
 def fit_predict(cfg: ModelConfig, X_train: np.ndarray, y_train: np.ndarray, w_train: np.ndarray,
                 X_test: np.ndarray) -> np.ndarray:
-    """ Out-of-sample probabilities for X_test. """
+    """ Out-of-sample probabilities for X_test: shape (n,) = P(meta_label = 1) for binary
+        models; (n, 3) = P(sl), P(timeout), P(pt) for multiclass ones (y = class codes).
+    """
     y = y_train.astype(float)
     if isinstance(cfg, TakeAllModelConfig):
         return np.full(len(X_test), float((w_train * y).sum() / w_train.sum()))
     if isinstance(cfg, GBMModelConfig):
         return fit_gbm(cfg, X_train, y, w_train)(X_test)
+    if isinstance(cfg, GBMMulticlassModelConfig):
+        return fit_gbm_multiclass(cfg, X_train, y_train, w_train)(X_test)
     if isinstance(cfg, LogisticModelConfig | LogisticModelConfigV1):
         Ztr, Zte = _standardize(X_train, w_train, X_test)
         beta = fit_logistic(Ztr, y, w_train, l2=cfg.l2, max_iter=cfg.max_iter, tol=cfg.tol)
@@ -135,19 +141,38 @@ def fit_predict(cfg: ModelConfig, X_train: np.ndarray, y_train: np.ndarray, w_tr
 #!================================================================================(80)
 #! LightGBM
 #!--------------------------------------------------------------------------------(80)
-def fit_gbm(cfg: GBMModelConfig, X: np.ndarray, y: np.ndarray, w: np.ndarray):
-    """ A predict function (X -> probability) from a LightGBM binary model. """
-    import lightgbm as lgb                                         # lazy: heavy import
-    params = {
-        "objective": "binary", "learning_rate": cfg.learning_rate, "num_leaves": cfg.num_leaves,
+def is_multiclass(cfg: ModelConfig) -> bool:
+    return isinstance(cfg, GBMMulticlassModelConfig)
+
+
+def _gbm_params(cfg: GBMModelConfig | GBMMulticlassModelConfig) -> dict:
+    return {
+        "learning_rate": cfg.learning_rate, "num_leaves": cfg.num_leaves,
         "max_depth": cfg.max_depth, "min_data_in_leaf": cfg.min_data_in_leaf,
         "feature_fraction": cfg.feature_fraction, "bagging_fraction": cfg.bagging_fraction,
         "bagging_freq": 1 if cfg.bagging_fraction < 1 else 0, "lambda_l2": cfg.lambda_l2,
         "seed": cfg.seed, "deterministic": True, "force_row_wise": True, "num_threads": 1, "verbose": -1,
     }
+
+
+def fit_gbm(cfg: GBMModelConfig, X: np.ndarray, y: np.ndarray, w: np.ndarray):
+    """ A predict function (X -> probability) from a LightGBM binary model. """
+    import lightgbm as lgb                                         # lazy: heavy import
+    params = {"objective": "binary", **_gbm_params(cfg)}
     booster = lgb.train(params, lgb.Dataset(X, label=y, weight=w, free_raw_data=True),
                         num_boost_round=cfg.n_rounds)
     return lambda Z: booster.predict(Z)
+
+
+def fit_gbm_multiclass(cfg: GBMMulticlassModelConfig, X: np.ndarray, y: np.ndarray, w: np.ndarray):
+    """ A predict function (X -> (n, 3) class probabilities) from a LightGBM multiclass model.
+        y = class codes 0 (sl), 1 (timeout), 2 (pt).
+    """
+    import lightgbm as lgb
+    params = {"objective": "multiclass", "num_class": 3, **_gbm_params(cfg)}
+    booster = lgb.train(params, lgb.Dataset(X, label=y.astype(int), weight=w, free_raw_data=True),
+                        num_boost_round=cfg.n_rounds)
+    return lambda Z: np.asarray(booster.predict(Z)).reshape(len(Z), 3)
 
 
 #!================================================================================(80)
@@ -192,6 +217,18 @@ class Calibrator:
 #
 
 
+class MulticlassCalibrator:
+    """ One-vs-rest Platt per class, renormalized; rows clipped to [CALIB_EPS, 1] then rescaled. """
+
+    def __init__(self, per_class: list[Calibrator]):
+        self.per_class = per_class
+
+    def __call__(self, P: np.ndarray) -> np.ndarray:
+        out = np.column_stack([c(P[:, k]) for k, c in enumerate(self.per_class)])
+        return out / out.sum(axis=1, keepdims=True)
+#
+
+
 def _logit(p: np.ndarray) -> np.ndarray:
     q = np.clip(p, 1e-6, 1 - 1e-6)
     return np.log(q / (1 - q))
@@ -220,24 +257,31 @@ def fold_predict(cfg: ModelConfig, X: np.ndarray, y: np.ndarray, w: np.ndarray, 
         calibration window's, else the whole training set's), for the above_prior sizer.
     """
     method = getattr(cfg, "calibration", "none")
+    multi = is_multiclass(cfg)
+    pos = (y == 2).astype(float) if multi else y.astype(float)            # P(meta_label = 1) / P(pt)
     if method == "none":
         return fit_predict(cfg, X, y, w, X_test), {"n_fit": len(y), "n_calib": 0, "calib_purged": 0,
-                                                   "sizing_prior": float((w * y).sum() / w.sum())}
+                                                   "sizing_prior": float((w * pos).sum() / w.sum())}
     order = np.argsort(t0, kind="stable")
     n_calib = max(1, round(len(y) * cfg.calib_fraction))              # type: ignore[attr-defined]
     calib = order[len(y) - n_calib:]
     start = life_start[calib].min()
     early = order[: len(y) - n_calib]
     fit = early[life_end[early] <= start]
-    if len(fit) == 0 or len(np.unique(y[calib])) < 2:
+    if len(fit) == 0 or len(np.unique(y[calib])) < (3 if multi else 2):
         raise ValueError(f"calibration split left {len(fit)} fit events / {len(calib)} calibration events "
                          f"with {len(np.unique(y[calib]))} class(es)")
     if isinstance(cfg, GBMModelConfig):
         predict = fit_gbm(cfg, X[fit], y[fit].astype(float), w[fit])
+        cal = fit_calibrator(method, predict(X[calib]), y[calib], w[calib])
+    elif isinstance(cfg, GBMMulticlassModelConfig):
+        predict = fit_gbm_multiclass(cfg, X[fit], y[fit], w[fit])
+        raw = predict(X[calib])
+        cal = MulticlassCalibrator([fit_calibrator(method, raw[:, k], (y[calib] == k).astype(float), w[calib])
+                                    for k in range(3)])
     else:
         raise TypeError(f"calibration isn't supported for {type(cfg).__name__}")
-    cal = fit_calibrator(method, predict(X[calib]), y[calib], w[calib])
-    wc, yc = w[calib], y[calib].astype(float)
+    wc, yc = w[calib], pos[calib]
     return cal(predict(X_test)), {"n_fit": len(fit), "n_calib": len(calib),
                                   "calib_purged": len(early) - len(fit),
                                   "sizing_prior": float((wc * yc).sum() / wc.sum())}

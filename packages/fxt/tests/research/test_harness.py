@@ -74,7 +74,7 @@ def synth_dataset(seed: int = 3, start: datetime = UTC0, end: datetime = datetim
             "touch": "vertical" if vertical else ("upper" if (y == 1) == (side == 1) else "lower"),
             "outcome": "timeout" if vertical else ("pt" if y else "sl"), "meta_label": y, "ret": ret,
             "hours_to_exit": float(j - i), "exit_gap": False, "price_t0": price[i],
-            "exit_price": price[i] * math.exp(side * ret), "x": x, "noise": rng.normal(),
+            "exit_price": price[i] * math.exp(side * ret), "half_width": 0.005, "x": x, "noise": rng.normal(),
         })
     frame = pl.DataFrame(rows).with_columns(pl.col("t0", "t1").cast(pl.Datetime("us", "UTC")),
                                             pl.col("side", "meta_label").cast(pl.Int8))

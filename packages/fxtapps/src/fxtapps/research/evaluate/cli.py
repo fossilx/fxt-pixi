@@ -7,6 +7,7 @@
     pixi run evaluate EURJPY --model logistic
     pixi run evaluate EURJPY --model logistic --sizer threshold --threshold 0.45
     pixi run evaluate EURJPY --model gbm --sizer above_prior     # the meta-model, calibrated in-fold
+    pixi run evaluate EURJPY --model gbm3 --sizer expected_value  # pt / sl / timeout, trade if edge beats cost
     pixi run evaluate EURJPY --side fade
     pixi run evaluate EURJPY --labels 3b896dab2027 --use ret_24h_z,vol_ratio_24h_120h
     pixi run evaluate EURJPY --features 816950fa181b              # baseline set only (default: baseline + trend)
@@ -21,7 +22,7 @@ from rich.table import Table
 from fxt.research.events import InputBarsError
 from fxt.research.harness import InputDatasetError, evaluate, load_dataset
 from fxt.research.models import (
-    BacktestConfig, CusumEventsConfig, GBMModelConfig, LogisticModelConfig, SideLabelsConfig, SizerConfig, TakeAllModelConfig,
+    BacktestConfig, CusumEventsConfig, GBMModelConfig, GBMMulticlassModelConfig, LogisticModelConfig, SideLabelsConfig, SizerConfig, TakeAllModelConfig,
     TripleBarrierTouchConfig, WalkForwardConfig,
 )
 from fxt.research.registry import LockboxAlreadyUsed
@@ -52,16 +53,18 @@ def _fmt(fmt: str, v) -> str:
 @click.option("--weights", "weights_hash", help="weights config hash (default: the default for the labels)")
 @click.option("--features", "features_hashes", multiple=True,
               help="features config hash; repeat for several (default: baseline + trend)")
-@click.option("--model", type=click.Choice(["take_all", "logistic", "gbm"]), default="take_all", show_default=True)
+@click.option("--model", type=click.Choice(["take_all", "logistic", "gbm", "gbm3"]), default="take_all",
+              show_default=True, help="gbm3 = multiclass (stop-loss / timeout / profit-take)")
 @click.option("--calibration", type=click.Choice(["platt", "isotonic", "none"]), default="platt", show_default=True,
-              help="in-fold probability calibration (gbm)")
+              help="in-fold probability calibration (gbm; gbm3: platt or none)")
 @click.option("--use", "use_features", default="", help="comma-separated feature names (logistic; default all)")
 @click.option("--l2", type=float, default=1e-2, show_default=True)
 @click.option("--side-inputs", type=click.Choice(["aligned", "none"]), default="aligned", show_default=True,
               help="aligned: signed features enter as side x value, plus side (logistic)")
 @click.option("--sample-weight", type=click.Choice(["weight", "weight_uniq", "none"]), default="weight",
               show_default=True)
-@click.option("--sizer", type=click.Choice(["take_all", "threshold", "linear", "above_prior"]), default="take_all",
+@click.option("--sizer", type=click.Choice(["take_all", "threshold", "linear", "above_prior", "expected_value"]),
+              default="take_all",
               show_default=True)
 @click.option("--threshold", type=float, default=0.5, show_default=True)
 @click.option("--slippage", type=float, default=0.2, show_default=True, help="pips per side")
@@ -79,9 +82,14 @@ def main(symbol, source, market, labels_hash, side, weights_hash, features_hashe
         mcfg = TakeAllModelConfig(sample_weight=sample_weight)
     elif model == "logistic":
         mcfg = LogisticModelConfig(features=feats, l2=l2, sample_weight=sample_weight, side_inputs=side_inputs)
-    else:
+    elif model == "gbm":
         mcfg = GBMModelConfig(features=feats, sample_weight=sample_weight, side_inputs=side_inputs,
                               calibration=calibration)
+    else:
+        if calibration == "isotonic":
+            raise click.BadParameter("gbm3 supports platt or none", param_hint="--calibration")
+        mcfg = GBMMulticlassModelConfig(features=feats, sample_weight=sample_weight, side_inputs=side_inputs,
+                                        calibration=calibration)
     scfg = SizerConfig(rule=sizer, threshold=threshold)
     bcfg = BacktestConfig(slippage_pips=slippage, commission_bp=commission, position_cap=cap)
     cv = WalkForwardConfig()
@@ -112,7 +120,8 @@ def main(symbol, source, market, labels_hash, side, weights_hash, features_hashe
     console.print(t)
     console.print(f"t (effective n {a.get('n_eff', 0):,.0f}): {_fmt('{:+.2f}', a.get('t_eff'))}   "
                   f"folds net positive: {a['folds_net_positive']:.0f}/{a['n_folds']:.0f}   "
-                  f"calibration error: {_fmt('{:.3f}', a.get('clf_ece'))}")
+                  f"calibration error: {_fmt('{:.3f}', a.get('clf_ece'))}   "
+                  f"direction AUC (pt vs sl): {_fmt('{:.3f}', a.get('dir_auc'))}")
     console.print(f"PSR (P[Sharpe > 0]): {_fmt('{:.3f}', a.get('psr'))}   "
                   f"DSR (vs best of {a.get('n_trials', 0):.0f} trials): {_fmt('{:.3f}', a.get('dsr'))}   "
                   f"trials for {res.strategy_id}: {trials}")

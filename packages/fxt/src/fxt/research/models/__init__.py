@@ -24,7 +24,7 @@ from .labels import SIDE_RULES, LabelsMeta, SideLabelsConfig
 from .weights import SampleWeightsConfig, WeightsMeta
 from .features import BarFeaturesConfig, FeatureSetConfig, FeaturesMeta, TrendFeaturesConfig
 from .harness import (
-    BacktestConfig, GBMModelConfig, LogisticModelConfig, LogisticModelConfigV1, ModelConfig, SizerConfig, TakeAllModelConfig, WalkForwardConfig,
+    OUTCOME_CLASSES, BacktestConfig, GBMModelConfig, GBMMulticlassModelConfig, LogisticModelConfig, LogisticModelConfigV1, ModelConfig, SizerConfig, TakeAllModelConfig, WalkForwardConfig,
 )
 
 __all__ = [
@@ -37,6 +37,6 @@ __all__ = [
     "SIDE_RULES", "LabelsMeta", "SideLabelsConfig",
     "SampleWeightsConfig", "WeightsMeta",
     "BarFeaturesConfig", "FeatureSetConfig", "FeaturesMeta", "TrendFeaturesConfig",
-    "BacktestConfig", "GBMModelConfig", "LogisticModelConfig", "LogisticModelConfigV1", "ModelConfig", "SizerConfig", "TakeAllModelConfig",
+    "OUTCOME_CLASSES", "BacktestConfig", "GBMModelConfig", "GBMMulticlassModelConfig", "LogisticModelConfig", "LogisticModelConfigV1", "ModelConfig", "SizerConfig", "TakeAllModelConfig",
     "WalkForwardConfig",
 ]

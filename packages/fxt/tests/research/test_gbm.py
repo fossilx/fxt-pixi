@@ -8,9 +8,12 @@ import polars as pl
 import pytest
 
 from fxt.research.harness import (
-    CALIB_EPS, apply_sizer, evaluate, fit_calibrator, fit_gbm, fold_predict, isotonic_fit,
+    CALIB_EPS, MulticlassCalibrator, apply_sizer, evaluate, fit_calibrator, fit_gbm, fit_gbm_multiclass,
+    fold_predict, isotonic_fit,
 )
-from fxt.research.models import GBMModelConfig, LogisticModelConfig, SizerConfig, registry
+from fxt.research.models import (
+    OUTCOME_CLASSES, GBMModelConfig, GBMMulticlassModelConfig, LogisticModelConfig, SizerConfig, registry,
+)
 
 from .test_harness import CV, synth_dataset
 
@@ -135,3 +138,71 @@ def test_calibration_only_for_supported_models():
                            f["life_start"].to_numpy(), f["life_end"].to_numpy(), X[:3])
     assert info["n_calib"] == 0 and len(p) == 3
     assert pl.Series(p).is_between(0, 1).all()
+
+
+#!================================================================================(80)
+#! multiclass (pt / sl / timeout)
+#!--------------------------------------------------------------------------------(80)
+def test_multiclass_gbm_probabilities():
+    rng = np.random.default_rng(3)
+    X = rng.normal(size=(3000, 3))
+    y = np.where(X[:, 0] > 0.5, 2, np.where(X[:, 0] < -0.5, 0, 1))
+    cfg = GBMMulticlassModelConfig(min_data_in_leaf=20)
+    P = fit_gbm_multiclass(cfg, X[:2000], y[:2000], np.ones(2000))(X[2000:])
+    assert P.shape == (1000, 3) and np.allclose(P.sum(axis=1), 1)
+    assert np.array_equal(P, fit_gbm_multiclass(cfg, X[:2000], y[:2000], np.ones(2000))(X[2000:]))
+    assert (P.argmax(axis=1) == y[2000:]).mean() > 0.9
+    cal = MulticlassCalibrator([fit_calibrator("platt", P[:, k], (y[2000:] == k).astype(float), np.ones(1000))
+                                for k in range(3)])
+    Q = cal(P)
+    assert np.allclose(Q.sum(axis=1), 1) and (Q > 0).all()
+
+
+def test_expected_value_sizer():
+    prob, p_sl = np.array([0.40, 0.35, 0.30]), np.array([0.30, 0.34, 0.35])
+    hw, cost = np.array([0.008, 0.008, 0.008]), np.array([1e-4, 1e-4, 1e-4])
+    #! edge x half_width: 8e-4 > 1e-4 (take); 8e-5 < 1e-4 (skip); negative (skip)
+    assert apply_sizer(prob, SizerConfig(rule="expected_value"), p_sl=p_sl, half_width=hw, cost=cost).tolist() == [1, 0, 0]
+    with pytest.raises(ValueError, match="multiclass"):
+        apply_sizer(prob, SizerConfig(rule="expected_value"))
+    assert SizerConfig().config_hash() == "66cedc144eff"
+
+
+def directional_dataset():
+    """ The outcome depends on side x feature: pt when aligned, sl when against, timeout when small. """
+    ds = synth_dataset()
+    f = ds.frame
+    rng = np.random.default_rng(7)
+    z = f["side"].to_numpy() * f["x"].to_numpy() + rng.normal(0, 0.4, f.height)
+    outcome = np.where(z > 0.5, "pt", np.where(z < -0.5, "sl", "timeout"))
+    ret = np.select([outcome == "pt", outcome == "sl"], [0.005, -0.005], 0.0001)
+    frame = f.with_columns(pl.Series("outcome", outcome), pl.Series("ret", ret),
+                           pl.Series("meta_label", (outcome == "pt").astype(np.int8)))   # touch/t1 kept for costs
+    return type(ds)(**{**ds.__dict__, "frame": frame, "signed_names": ("x",)})
+
+
+def test_evaluate_multiclass_directional():
+    ds = directional_dataset()
+    res = evaluate(ds, model=GBMMulticlassModelConfig(min_data_in_leaf=20), sizer=SizerConfig(rule="expected_value"),
+                   cv=CV, registry=None)
+    t, a = res.trades, res.aggregate
+    assert t["p_sl"].null_count() == 0 and t["p_timeout"].null_count() == 0
+    assert np.allclose((t["prob"] + t["p_sl"] + t["p_timeout"]).to_numpy(), 1)
+    assert np.allclose(t["score"].to_numpy(), (t["prob"] - t["p_sl"]).to_numpy())
+    assert a["dir_auc"] > 0.9 and a["clf_auc"] > 0.8
+    #! it trades the events it expects to profit on: mostly profit-takes
+    taken = t.filter(pl.col("size") > 0)
+    assert 0 < taken.height < t.height and (taken["outcome"] == "pt").mean() > 0.6
+    for row in res.folds.iter_rows(named=True):
+        assert row["n_calib"] > 0 and 0 < row["sizing_prior"] < 1
+
+
+def test_binary_models_report_dir_auc_too():
+    res = evaluate(directional_dataset(), model=LogisticModelConfig(), cv=CV, registry=None)
+    assert res.trades["p_sl"].null_count() == res.trades.height
+    assert np.array_equal(res.trades["score"].to_numpy(), res.trades["prob"].to_numpy())
+    assert 0 <= res.aggregate["dir_auc"] <= 1 and "dir_auc" in res.folds.columns
+
+
+def test_multiclass_config():
+    assert GBMMulticlassModelConfig().label == "gbm3" and OUTCOME_CLASSES == ("sl", "timeout", "pt")

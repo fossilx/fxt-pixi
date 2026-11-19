@@ -10,6 +10,7 @@ the hashes it used (`run_configs`).
     TakeAllModelConfig    model: no model; predicts the training base rate
     LogisticModelConfig   model: L2 logistic regression on standardized features (v2: side inputs)
     GBMModelConfig        model: LightGBM, fixed small trees, calibrated inside each fold
+    GBMMulticlassModelConfig  model: LightGBM on pt / sl / timeout (open question 9)
     SizerConfig           sizer: take_all / threshold / linear / above_prior
 '''
 #=================================================================================(80)
@@ -26,7 +27,7 @@ from pydantic import Field, model_validator
 from ._registry import registry
 from .config import HarnessConfig
 
-__all__ = ["BacktestConfig", "GBMModelConfig", "LogisticModelConfig", "LogisticModelConfigV1", "ModelConfig", "SizerConfig",
+__all__ = ["OUTCOME_CLASSES", "BacktestConfig", "GBMModelConfig", "GBMMulticlassModelConfig", "LogisticModelConfig", "LogisticModelConfigV1", "ModelConfig", "SizerConfig",
            "TakeAllModelConfig", "WalkForwardConfig"]
 
 
@@ -217,6 +218,48 @@ class GBMModelConfig(ModelConfig):
 #
 
 
+OUTCOME_CLASSES = ("sl", "timeout", "pt")                   # multiclass label order: 0, 1, 2
+
+
+@registry.register("GBMMulticlassModelConfig", 1)
+class GBMMulticlassModelConfig(ModelConfig):
+    """ LightGBM on the three outcomes (stop-loss / timeout / profit-take), spec §8.1 and
+        open question 9.
+
+    The binary meta-label lumps stop-losses with timeouts, so a binary model can raise
+    P(profit-take) just by predicting that *some* barrier gets hit. With the outcomes
+    kept apart, P(pt) - P(sl) is a directional score: with symmetric barriers the
+    expected gross return is about half_width x (P(pt) - P(sl)) plus the small timeout
+    term, which is what the `expected_value` sizer uses.
+
+    Same fixed tree parameters as GBMModelConfig (not tuned). The harness's classifier
+    metrics use P(pt) as the probability of meta_label = 1, so they compare directly with
+    the binary models; `dir_auc` scores P(pt) - P(sl) on profit-takes vs stop-losses.
+
+        calibration     "platt" (default): one-vs-rest Platt per class on the calibration
+                        window, then renormalized to sum to 1; "none": raw probabilities
+        calib_fraction  as GBMModelConfig
+    """
+    features: tuple[str, ...] = ()
+    side_inputs: Literal["aligned", "none"] = "aligned"
+    n_rounds: int = Field(200, ge=1)
+    learning_rate: float = Field(0.03, gt=0, le=1)
+    num_leaves: int = Field(7, ge=2)
+    max_depth: int = Field(3, ge=1)
+    min_data_in_leaf: int = Field(50, ge=1)
+    feature_fraction: float = Field(0.8, gt=0, le=1)
+    bagging_fraction: float = Field(0.8, gt=0, le=1)
+    lambda_l2: float = Field(5.0, ge=0)
+    seed: int = 42
+    calibration: Literal["platt", "none"] = "platt"
+    calib_fraction: float = Field(0.25, gt=0, lt=1)
+
+    @property
+    def label(self) -> str:
+        return "gbm3" if self.calibration == "platt" else f"gbm3_{self.calibration}"
+#
+
+
 @registry.register("SizerConfig", 1)
 class SizerConfig(HarnessConfig):
     """ Probability -> position size in [0, cap] (spec §8.2).
@@ -224,6 +267,9 @@ class SizerConfig(HarnessConfig):
         take_all     size = cap for every event
         threshold    size = cap if prob > threshold, else 0
         linear       size = clip((prob - threshold) / (1 - threshold), 0, 1) * cap
+        expected_value  size = cap if half_width x (P(pt) - P(sl)) > cost: the trade's
+                     expected gross return (symmetric barriers, timeout term ignored) beats
+                     its cost. Needs a multiclass model; no free parameter
         above_prior  size = cap if prob > the base rate the probabilities are calibrated to
                      (the calibration window's for a calibrated model, else the training
                      set's), else 0: "better than an average event", no free parameter
@@ -231,11 +277,12 @@ class SizerConfig(HarnessConfig):
     """
     kind = "sizer"
 
-    rule: Literal["take_all", "threshold", "linear", "above_prior"] = "take_all"
+    rule: Literal["take_all", "threshold", "linear", "above_prior", "expected_value"] = "take_all"
     threshold: float = Field(0.5, ge=0, lt=1)
     cap: float = Field(1.0, gt=0)
 
     @property
     def label(self) -> str:
-        return self.rule if self.rule in ("take_all", "above_prior") else f"{self.rule}{self.threshold:g}"
+        return self.rule if self.rule in ("take_all", "above_prior", "expected_value") \
+            else f"{self.rule}{self.threshold:g}"
 #-

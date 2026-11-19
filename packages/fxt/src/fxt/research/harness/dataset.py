@@ -131,7 +131,7 @@ def load_dataset(
         labels.filter(pl.col("meta_label").is_not_null())
         .select("event_id", "symbol", "t0", "t1", "side", "touch", "outcome", "meta_label", "ret",
                 "hours_to_exit", "exit_gap")
-        .join(touches.select("event_id", "price_t0", "exit_price"), on="event_id", how="left")
+        .join(touches.select("event_id", "price_t0", "exit_price", "half_width"), on="event_id", how="left")
         .join(weights.select("event_id", "life_start", "life_end", "uniqueness", "weight", "weight_uniq"),
               on="event_id", how="left")
         .sort("t0")

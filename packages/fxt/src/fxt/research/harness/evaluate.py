@@ -32,7 +32,7 @@ from typing import Any
 import numpy as np
 import polars as pl
 
-from fxt.research.models import BacktestConfig, ModelConfig, SizerConfig, WalkForwardConfig
+from fxt.research.models import OUTCOME_CLASSES, BacktestConfig, ModelConfig, SizerConfig, WalkForwardConfig
 from fxt.research.paths import Research
 from fxt.research.registry import Registry, RunPurpose
 from fxt.research.store import code_version
@@ -41,14 +41,17 @@ from .backtest import apply_sizer, simulate, trade_costs
 from .dataset import Dataset
 from .folds import make_folds, usable_mask, year_span
 from .metrics import classifier_metrics, trading_metrics
-from .models import fold_predict, model_inputs
+from .metrics import auc
+from .models import fold_predict, is_multiclass, model_inputs
 from .stats import deflated_sharpe, psr
 
 __all__ = ["EvalResult", "PREDICTION_COLUMNS", "evaluate"]
 
 PREDICTION_COLUMNS = ("event_id", "symbol", "t0", "t1", "fold", "test_year", "side", "outcome", "meta_label",
-                      "sample_weight", "prob", "size", "ret", "cost", "gross", "net", "uniqueness",
-                      "hours_to_exit")
+                      "sample_weight", "prob", "p_sl", "p_timeout", "score", "size", "ret", "cost", "gross",
+                      "net", "uniqueness", "hours_to_exit")
+#! prob = P(meta_label = 1) (= P(pt) for multiclass models); p_sl / p_timeout: multiclass only (else null);
+#! score = the model's directional score: P(pt) - P(sl) for multiclass, prob otherwise (dir_auc uses it)
 
 
 def _quiet(msg: str) -> None: ...
@@ -70,6 +73,7 @@ def _metrics(pred: pl.DataFrame, prior: float, start: datetime, end: datetime, b
     p = pred.get_column("prob").to_numpy()
     w = pred.get_column("sample_weight").to_numpy()
     out = {f"clf_{k}": v for k, v in classifier_metrics(y, p, prior, w).items()}
+    out["dir_auc"] = _dir_auc(pred)
     out.update(trading_metrics(pred, start, end, bt))
     return out
 
@@ -119,6 +123,12 @@ def evaluate(
         costed = trade_costs(frame, ds.bars, backtest, ds.symbol)
         X_all, _ = model_inputs(costed, names, ds.signed_names, getattr(model, "side_inputs", "none"))
         y_all = costed.get_column("meta_label").to_numpy()
+        multi = is_multiclass(model)
+        y_fit = (costed.get_column("outcome").replace_strict({c: i for i, c in enumerate(OUTCOME_CLASSES)},
+                                                             return_dtype=pl.Int8).to_numpy()
+                 if multi else y_all)
+        hw_all = costed.get_column("half_width").to_numpy()
+        cost_all = costed.get_column("cost").to_numpy()
         w_all = (np.ones(costed.height) if model.sample_weight == "none"
                  else costed.get_column(model.sample_weight).to_numpy().astype(float))
         t0_all = costed.get_column("t0").dt.epoch("s").to_numpy()
@@ -129,12 +139,23 @@ def evaluate(
         for f in folds:
             if f.n_train == 0 or f.n_test == 0:
                 raise ValueError(f"fold {f.index} ({f.test_year}): {f.n_train} train / {f.n_test} test events")
-            prob, info = fold_predict(model, X_all[f.train], y_all[f.train], w_all[f.train], t0_all[f.train],
-                                      ls_all[f.train], le_all[f.train], X_all[f.test])
+            probs, info = fold_predict(model, X_all[f.train], y_fit[f.train], w_all[f.train], t0_all[f.train],
+                                       ls_all[f.train], le_all[f.train], X_all[f.test])
+            if probs.ndim == 2:
+                prob, p_sl, p_to = probs[:, 2], probs[:, 0], probs[:, 1]
+                score = prob - p_sl
+            else:
+                prob, p_sl, p_to, score = probs, None, None, probs
             priors[f.index] = float((w_all[f.train] * y_all[f.train]).sum() / w_all[f.train].sum())
             parts.append(costed.filter(pl.Series(f.test)).with_columns(
                 pl.lit(f.index, pl.Int32).alias("fold"), pl.lit(f.test_year, pl.Int32).alias("test_year"),
-                pl.Series("prob", prob), pl.Series("size", apply_sizer(prob, sizer, info["sizing_prior"])),
+                pl.Series("prob", prob),
+                pl.Series("p_sl", p_sl, dtype=pl.Float64) if p_sl is not None else pl.lit(None, pl.Float64).alias("p_sl"),
+                pl.Series("p_timeout", p_to, dtype=pl.Float64) if p_to is not None
+                else pl.lit(None, pl.Float64).alias("p_timeout"),
+                pl.Series("score", score),
+                pl.Series("size", apply_sizer(prob, sizer, info["sizing_prior"], p_sl=p_sl,
+                                              half_width=hw_all[f.test], cost=cost_all[f.test])),
                 pl.Series("sample_weight", w_all[f.test])))
             fold_rows.append({"fold": f.index, "test_year": f.test_year, "n_train": f.n_train,
                               "n_test": f.n_test, "purged": f.purged, "embargoed": f.embargoed, **info})
@@ -159,6 +180,9 @@ def evaluate(
         agg["clf_auc_pooled"], agg["clf_auc_unweighted_pooled"] = agg["clf_auc"], agg.pop("clf_auc_unweighted")
         agg["clf_auc"] = float(np.mean([r["clf_auc"] for r in fold_rows]))
         agg["clf_auc_unweighted"] = float(np.mean([r["clf_auc_unweighted"] for r in fold_rows]))
+        agg["dir_auc_pooled"] = _dir_auc(trades)
+        fold_dir = [r["dir_auc"] for r in fold_rows if _finite(r["dir_auc"])]
+        agg["dir_auc"] = float(np.mean(fold_dir)) if fold_dir else math.nan
         agg.update(trading_metrics(trades, year_span(folds[0].test_year)[0], test_end, backtest))
         #! deflated Sharpe: against the best daily Sharpe expected from this many skill-less trials
         sr, sk, ku, nd = (agg.get(k, math.nan) for k in ("sharpe_daily", "skew_daily", "kurt_daily", "n_days"))
@@ -190,6 +214,16 @@ def evaluate(
 
     return EvalResult(run_id=run_id, strategy_id=ds.strategy_id, folds=pl.DataFrame(fold_rows),
                       aggregate=agg, trades=trades, configs=configs)
+
+
+def _dir_auc(pred: pl.DataFrame) -> float:
+    """ Directional AUC: the model's score on profit-takes vs stop-losses (timeouts left out).
+        0.5 = it can't tell which barrier gets hit, however well it predicts that one does.
+    """
+    s = pred.filter(pl.col("outcome").is_in(["pt", "sl"]))
+    if s.height == 0:
+        return math.nan
+    return auc((s.get_column("outcome") == "pt").to_numpy().astype(float), s.get_column("score").to_numpy())
 
 
 def _finite(v: Any) -> bool:

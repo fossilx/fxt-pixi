@@ -71,10 +71,18 @@ def trade_costs(frame: pl.DataFrame, bars: pl.DataFrame, cfg: BacktestConfig, sy
     return f.sort("_row").drop("_row", "_entry_bar", "_exit_bar")
 
 
-def apply_sizer(prob: np.ndarray, cfg: SizerConfig, prior: float | None = None) -> np.ndarray:
-    """ Sizes in [0, cap]; `prior` (the fold's training base rate) is needed for above_prior. """
+def apply_sizer(prob: np.ndarray, cfg: SizerConfig, prior: float | None = None, *,
+                p_sl: np.ndarray | None = None, half_width: np.ndarray | None = None,
+                cost: np.ndarray | None = None) -> np.ndarray:
+    """ Sizes in [0, cap]. `prior` (the base rate the probabilities are calibrated to) is needed
+        for above_prior; P(sl), half_width and cost (log units) for expected_value.
+    """
     if cfg.rule == "take_all":
         return np.full(len(prob), cfg.cap)
+    if cfg.rule == "expected_value":
+        if p_sl is None or half_width is None or cost is None:
+            raise ValueError("expected_value needs a multiclass model (P(sl)), half_width and cost")
+        return np.where(half_width * (prob - p_sl) > cost, cfg.cap, 0.0)
     if cfg.rule == "above_prior":
         if prior is None:
             raise ValueError("above_prior needs the training base rate")
