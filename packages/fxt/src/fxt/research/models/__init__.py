@@ -23,7 +23,8 @@ from .touches import TouchesMeta, TripleBarrierTouchConfig
 from .labels import SIDE_RULES, LabelsMeta, SideLabelsConfig
 from .weights import SampleWeightsConfig, WeightsMeta
 from .features import (
-    BarFeaturesConfig, FeatureSetConfig, FeaturesMeta, FlowFeaturesConfig, TrendFeaturesConfig,
+    BarFeaturesConfig, CrossFeaturesConfig, FeatureSetConfig, FeaturesMeta, FlowFeaturesConfig, TrendFeaturesConfig,
+    split_pair,
 )
 from .harness import (
     OUTCOME_CLASSES, BacktestConfig, GBMModelConfig, GBMMulticlassModelConfig, LogisticModelConfig, LogisticModelConfigV1, ModelConfig, SizerConfig, TakeAllModelConfig, WalkForwardConfig,
@@ -38,7 +39,8 @@ __all__ = [
     "TouchesMeta", "TripleBarrierTouchConfig",
     "SIDE_RULES", "LabelsMeta", "SideLabelsConfig",
     "SampleWeightsConfig", "WeightsMeta",
-    "BarFeaturesConfig", "FeatureSetConfig", "FeaturesMeta", "FlowFeaturesConfig", "TrendFeaturesConfig",
+    "BarFeaturesConfig", "CrossFeaturesConfig", "FeatureSetConfig", "FeaturesMeta", "FlowFeaturesConfig",
+    "TrendFeaturesConfig", "split_pair",
     "OUTCOME_CLASSES", "BacktestConfig", "GBMModelConfig", "GBMMulticlassModelConfig", "LogisticModelConfig", "LogisticModelConfigV1", "ModelConfig", "SizerConfig", "TakeAllModelConfig",
     "WalkForwardConfig",
 ]

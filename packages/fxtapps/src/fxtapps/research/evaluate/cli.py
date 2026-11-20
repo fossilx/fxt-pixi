@@ -10,7 +10,8 @@
     pixi run evaluate EURJPY --model gbm3 --sizer expected_value  # pt / sl / timeout, trade if edge beats cost
     pixi run evaluate EURJPY --side fade
     pixi run evaluate EURJPY --labels 3b896dab2027 --use ret_24h_z,vol_ratio_24h_120h
-    pixi run evaluate EURJPY --features 816950fa181b              # baseline set only (default: all three sets)
+    pixi run evaluate EURJPY --features 816950fa181b              # baseline set only (default: baseline+trend+flow)
+    pixi run evaluate EURJPY EURUSD USDJPY --feature-sets baseline,trend,flow,cross   # default configs by name
     pixi run evaluate EURJPY EURUSD USDJPY --model gbm3 --sizer expected_value   # pooled: one model, all pairs
     pixi run evaluate EURJPY --lockbox                        # ONE look per strategy, ever
 """
@@ -23,7 +24,8 @@ from rich.table import Table
 from fxt.research.events import InputBarsError
 from fxt.research.harness import InputDatasetError, evaluate, load_dataset
 from fxt.research.models import (
-    BacktestConfig, CusumEventsConfig, GBMModelConfig, GBMMulticlassModelConfig, LogisticModelConfig, SideLabelsConfig, SizerConfig, TakeAllModelConfig,
+    BacktestConfig, BarFeaturesConfig, CrossFeaturesConfig, CusumEventsConfig, FlowFeaturesConfig,
+    TrendFeaturesConfig, GBMModelConfig, GBMMulticlassModelConfig, LogisticModelConfig, SideLabelsConfig, SizerConfig, TakeAllModelConfig,
     TripleBarrierTouchConfig, WalkForwardConfig,
 )
 from fxt.research.registry import LockboxAlreadyUsed
@@ -52,6 +54,8 @@ def _fmt(fmt: str, v) -> str:
 @click.option("--labels", "labels_hash", help="labels config hash (default: --side on the default touches)")
 @click.option("--side", type=click.Choice(["follow", "fade"]), default="follow", show_default=True)
 @click.option("--weights", "weights_hash", help="weights config hash (default: the default for the labels)")
+@click.option("--feature-sets", default=None,
+              help="comma-separated default feature sets by name: baseline, trend, flow, cross (instead of --features)")
 @click.option("--features", "features_hashes", multiple=True,
               help="features config hash; repeat for several (default: baseline + trend + flow)")
 @click.option("--model", type=click.Choice(["take_all", "logistic", "gbm", "gbm3"]), default="take_all",
@@ -73,7 +77,7 @@ def _fmt(fmt: str, v) -> str:
 @click.option("--cap", type=float, default=None, help="position cap (total open size)")
 @click.option("--lockbox", is_flag=True, help="evaluate on the lockbox year (one look per strategy)")
 @click.option("--notes", default=None)
-def main(symbols, source, market, labels_hash, side, weights_hash, features_hashes, model, calibration, use_features, l2,
+def main(symbols, source, market, labels_hash, side, weights_hash, feature_sets, features_hashes, model, calibration, use_features, l2,
          side_inputs, sample_weight, sizer, threshold, slippage, commission, cap, lockbox, notes) -> None:
     if labels_hash is None:
         th = TripleBarrierTouchConfig(events_hash=CusumEventsConfig().config_hash()).config_hash()
@@ -95,6 +99,15 @@ def main(symbols, source, market, labels_hash, side, weights_hash, features_hash
     bcfg = BacktestConfig(slippage_pips=slippage, commission_bp=commission, position_cap=cap)
     cv = WalkForwardConfig()
 
+    if feature_sets:
+        if features_hashes:
+            raise click.UsageError("use --feature-sets or --features, not both")
+        by_name = {"baseline": BarFeaturesConfig, "trend": TrendFeaturesConfig, "flow": FlowFeaturesConfig,
+                   "cross": CrossFeaturesConfig}
+        try:
+            features_hashes = tuple(by_name[n.strip()]().config_hash() for n in feature_sets.split(",") if n.strip())
+        except KeyError as e:
+            raise click.BadParameter(f"unknown feature set {e}", param_hint="--feature-sets") from e
     if lockbox and not click.confirm(f"Lockbox run on {cv.lockbox_year}: one look per strategy, ever. Continue?"):
         raise SystemExit(1)
     try:

@@ -30,13 +30,14 @@ from fxt.lake.models import CheckRecord
 from fxt.lake.paths import Lake
 from fxt.research.events.build import load_bars
 from fxt.research.models import (
-    BarFeaturesConfig, FeatureSetConfig, FeaturesMeta, FileRef, FlowFeaturesConfig, SymbolKey,
+    BarFeaturesConfig, CrossFeaturesConfig, FeatureSetConfig, FeaturesMeta, FileRef, FlowFeaturesConfig, SymbolKey,
     TrendFeaturesConfig,
 )
 from fxt.research.paths import Research
 from fxt.research.store import code_version, file_ref, write_table
 
 from .baseline import compute_features
+from .cross import compute_cross
 from .flow import compute_flow
 from .trend import compute_trend
 
@@ -109,13 +110,25 @@ def build_features(
         lake, research = lake or dl, research or dr
     ser = {"source": source, "market": market, "symbol": symbol}
 
-    compute = FEATURE_BUILDERS.get(type(config))
-    if compute is None:
-        raise TypeError(f"no feature builder registered for {type(config).__name__}")
     interval = config.interval                                            # type: ignore[attr-defined]
     bars, paths = load_bars(lake, **ser, interval=interval, columns=config.bar_columns())
     log(f"{symbol}: {bars.height} {interval} bars from {len(paths)} file(s)")
-    long = compute(bars, config, symbol=symbol)
+    if isinstance(config, CrossFeaturesConfig):
+        #! cross features read the other basket pairs' bars too (all listed in inputs)
+        peers = {}
+        for p in config.basket:
+            if p == symbol.upper():
+                continue
+            peers[p], ppaths = load_bars(lake, source=source, market=market, symbol=p, interval=interval,
+                                         columns=config.bar_columns())
+            paths = [*paths, *ppaths]
+            log(f"  {p}: {peers[p].height} bars")
+        long = compute_cross(bars, config, symbol=symbol, peers=peers)
+    else:
+        compute = FEATURE_BUILDERS.get(type(config))
+        if compute is None:
+            raise TypeError(f"no feature builder registered for {type(config).__name__}")
+        long = compute(bars, config, symbol=symbol)
     checks = check_features(long, config)
     if failed := [c.name for c in checks if not c.ok]:
         raise AssertionError(f"feature invariants failed: {failed}")

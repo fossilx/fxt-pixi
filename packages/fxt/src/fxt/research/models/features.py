@@ -12,6 +12,8 @@ a new name, never a schema change.
                         trend efficiency, return since the UTC day began
     FlowFeaturesConfig  order-flow set from 1MIN bars: quoted-depth imbalance, tick-direction
                         and activity-weighted direction imbalance, activity and spread surges
+    CrossFeaturesConfig cross-pair set: how each leg's currency moved in the *other* pairs of a
+                        basket (which currency is driving the move)
     FeaturesMeta        metadata for every features file (adds the feature names)
 
 Signed features: a feature is *signed* when its sign says which way price went
@@ -37,7 +39,16 @@ from ._registry import registry
 from .config import StageConfig
 from .meta import ResearchMeta
 
-__all__ = ["BarFeaturesConfig", "FeatureSetConfig", "FeaturesMeta", "FlowFeaturesConfig", "TrendFeaturesConfig"]
+__all__ = ["BarFeaturesConfig", "CrossFeaturesConfig", "FeatureSetConfig", "FeaturesMeta", "FlowFeaturesConfig",
+           "TrendFeaturesConfig", "split_pair"]
+
+
+def split_pair(symbol: str) -> tuple[str, str]:
+    """ "EURJPY" -> ("EUR", "JPY"). """
+    s = symbol.upper()
+    if len(s) != 6 or not s.isalpha():
+        raise ValueError(f"not a 6-letter currency pair: {symbol!r}")
+    return s[:3], s[3:]
 
 
 class FeatureSetConfig(StageConfig):
@@ -230,6 +241,59 @@ class FlowFeaturesConfig(FeatureSetConfig):
     @property
     def label(self) -> str:
         return f"flow_{'_'.join(str(x) for x in self.windows)}h"
+#
+
+
+@registry.register("CrossFeaturesConfig", 1)
+class CrossFeaturesConfig(FeatureSetConfig):
+    """ Cross-pair features: what each leg's currency did in the *other* pairs of a basket,
+        valid at each hourly bar close of the target pair.
+
+    For every basket pair, z_h = log(close / close h bars earlier) / (vol x sqrt(h)), with vol
+    the std of 1-bar log returns over `vol_window` bars (gap returns left out): the same
+    vol-normalized return as the baseline set's ret_{h}h_z. A currency's strength over h is
+    the mean of +z_h over basket pairs where it's the base and -z_h where it's the quote,
+    **leaving out the target pair itself** (its own return is already in the baseline set).
+    Pairs are aligned on bar_time; a currency with no other pair at that bar has no value.
+
+        base_str_{h}h     strength of the target's base currency in the other pairs
+        quote_str_{h}h    strength of the target's quote currency in the other pairs
+        driver_{h}h       (|base_str| - |quote_str|) / (|base_str| + |quote_str|), in [-1, 1]:
+                          +1 = the base currency is doing the moving, -1 = the quote
+
+    For EURJPY in the EUR/USD/JPY basket: base_str = EURUSD's z, quote_str = -USDJPY's z.
+    Signed (side-alignable): base_str, quote_str. driver is direction-free.
+    """
+    feature_set: Literal["cross"] = "cross"
+    interval: Literal["1HOUR"] = "1HOUR"
+    basket: tuple[str, ...] = ("EURJPY", "EURUSD", "USDJPY")
+    horizons: tuple[int, ...] = (4, 24, 120)
+    vol_window: int = Field(120, ge=3)
+    max_gap_hours: float = Field(3.0, gt=0)
+    min_coverage: float = Field(0.9, gt=0, le=1)
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if len(self.basket) < 2 or list(self.basket) != sorted(set(self.basket)):
+            raise ValueError("basket: at least two distinct pairs, sorted")
+        for s in self.basket:
+            split_pair(s)
+        if not self.horizons or list(self.horizons) != sorted(set(self.horizons)) or self.horizons[0] < 1:
+            raise ValueError("horizons must be distinct, increasing bar counts >= 1")
+        return self
+
+    def names(self) -> tuple[str, ...]:
+        return tuple(f"{k}_{h}h" for k in ("base_str", "quote_str", "driver") for h in self.horizons)
+
+    def signed_names(self) -> tuple[str, ...]:
+        return tuple(f"{k}_{h}h" for k in ("base_str", "quote_str") for h in self.horizons)
+
+    def bar_columns(self) -> tuple[str, ...]:
+        return ("time", "mid_close")
+
+    @property
+    def label(self) -> str:
+        return "cross_" + "_".join(self.basket)
 #
 
 
