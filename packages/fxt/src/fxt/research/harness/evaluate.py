@@ -17,7 +17,7 @@ the start-of-data drop are applied per symbol on its own business clock, so the 
 years are the same for every pair. With more than one symbol the model also gets one
 0/1 column per symbol after the first (alphabetical), named "symbol=<SYMBOL>". Costs
 use each pair's own quotes and pip size. Aggregate metrics are also logged per
-symbol as "<SYMBOL>.<metric>".
+symbol as "<SYMBOL>.<metric>", both overall and per fold.
 
     res = evaluate([ds_eurjpy, ds_eurusd, ds_usdjpy], model=GBMMulticlassModelConfig(), ...)
 
@@ -246,6 +246,8 @@ def evaluate(
                 sm = trading_metrics(st, year_span(folds[0].test_year)[0], test_end, backtest)
                 by_fold = [_metrics(st.filter(pl.col("fold") == r["fold"]), priors[r["fold"]],
                                     *year_span(r["test_year"]), backtest) for r in fold_rows]
+                for r, b in zip(fold_rows, by_fold, strict=True):        # per symbol per fold, too
+                    r.update({f"{s}.{k}": b[k] for k in PER_SYMBOL_METRICS if k in b})
                 sm["clf_auc"] = _mean_finite([b.get("clf_auc") for b in by_fold])
                 sm["dir_auc"] = _mean_finite([b.get("dir_auc") for b in by_fold])
                 agg.update({f"{s}.{k}": sm[k] for k in PER_SYMBOL_METRICS if k in sm})

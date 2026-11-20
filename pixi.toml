@@ -57,6 +57,10 @@ description = "(research) evaluate a strategy (walk-forward CV + backtest), reco
 cmd = "python -m fxtapps.research.random_baseline.cli"
 description = "(research) random-entry baseline: N random strategies like a candidate's labels, evaluated as controls; run with: pixi run random-baseline EURJPY [--seeds 20] [--compare RUN_ID]"
 
+[tasks.run-report]
+cmd = "python -m fxtapps.research.run_report.cli"
+description = "(research) a finished run by symbol and test year, from its predictions (not a new trial); run with: pixi run run-report RUN_ID [--save]"
+
 [tasks.registry]
 cmd = "python -m fxtapps.research.registry.cli"
 description = "(research) experiment registry (data/experiments.db); run with: pixi run registry sync|show|runs [STRATEGY]|run RUN_ID"

@@ -105,3 +105,42 @@ def test_find_control_matches_symbols(tmp_path):
         reg.finish_run(one, "done")
         assert _find_control(reg, cfgs, ["EURJPY"]) == one
         assert _find_control(reg, cfgs, ["EURJPY", "EURUSD"]) is None          # a pooled control is different
+
+
+#!================================================================================(80)
+#! reports from predictions
+#!--------------------------------------------------------------------------------(80)
+def test_pooled_runs_log_per_symbol_fold_metrics(pair):
+    a, b = pair
+    res = evaluate([a, b], model=TakeAllModelConfig(), cv=CV, registry=None)
+    for row in res.folds.iter_rows(named=True):
+        n = row["AAAJPY.n_trades"] + row["BBBUSD.n_trades"]
+        assert n == row["n_trades"]
+
+
+def test_breakdown_matches_run_and_saves(pair, tmp_path):
+    from fxt.research.harness import breakdown, load_predictions, save_breakdown
+    a, b = pair
+    rs = Research(root=tmp_path / "research")
+    with Registry(tmp_path / "x.db") as reg:
+        res = evaluate([a, b], model=LogisticModelConfig(), cv=CV, registry=reg, research=rs)
+        pred = load_predictions(rs, res.run_id)
+        assert pred.height == res.trades.height
+        by = breakdown(pred)
+        assert set(by["symbol"]) == {"AAAJPY", "BBBUSD", "ALL"}
+        #! the "all years" rows agree with what the run itself logged
+        for s in ("AAAJPY", "BBBUSD"):
+            row = by.filter((pl.col("symbol") == s) & pl.col("test_year").is_null()).row(0, named=True)
+            assert row["net_bp"] == pytest.approx(res.aggregate[f"{s}.net_bp"])
+            assert row["n_trades"] == res.aggregate[f"{s}.n_trades"]
+        total = by.filter((pl.col("symbol") == "ALL") & pl.col("test_year").is_null()).row(0, named=True)
+        assert total["net_bp"] == pytest.approx(res.aggregate["net_bp"])
+        #! per-year rows match the run's per-symbol fold metrics
+        fold1 = by.filter((pl.col("symbol") == "BBBUSD") & (pl.col("test_year") == 2016)).row(0, named=True)
+        assert fold1["net_bp"] == pytest.approx(res.folds.row(1, named=True)["BBBUSD.net_bp"])
+        n = save_breakdown(reg, res.run_id, by)
+        assert n > 0
+        m = reg.metrics(res.run_id)
+        assert m.filter((pl.col("fold") == 1) & (pl.col("name") == "BBBUSD.n_events"))["value"].item() == fold1["n_events"]
+        with pytest.raises(FileNotFoundError):
+            load_predictions(rs, "nope")
