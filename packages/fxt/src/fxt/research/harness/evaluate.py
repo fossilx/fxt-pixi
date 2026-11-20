@@ -5,11 +5,21 @@ One harness run = one trial (ML pipeline spec §9): purged walk-forward folds, a
 fitted per fold, a sizer, the cost-aware backtest, metrics per fold and in aggregate,
 all logged to the registry, with out-of-fold predictions written to
 
-    data/research/predictions/run=<run_id>/<SYMBOL>.parquet
+    data/research/predictions/run=<run_id>/<SYMBOL>.parquet       (one file per symbol)
 
     ds = load_dataset(research, lake, labels_hash=..., source=..., market=..., symbol="EURJPY")
     res = evaluate(ds, model=LogisticModelConfig(), registry=reg, research=research)
     res.run_id, res.folds (one row per fold), res.aggregate (dict), res.trades
+
+Pooled (spec §9.7): pass one Dataset per symbol, all built from the same configs.
+One model is fitted per fold on every symbol's training events; folds, purging and
+the start-of-data drop are applied per symbol on its own business clock, so the test
+years are the same for every pair. With more than one symbol the model also gets one
+0/1 column per symbol after the first (alphabetical), named "symbol=<SYMBOL>". Costs
+use each pair's own quotes and pip size. Aggregate metrics are also logged per
+symbol as "<SYMBOL>.<metric>".
+
+    res = evaluate([ds_eurjpy, ds_eurusd, ds_usdjpy], model=GBMMulticlassModelConfig(), ...)
 
 The run is opened before anything is fitted and closed as "failed" if anything raises,
 so every attempt counts as a trial. registry=None runs without recording anything:
@@ -39,13 +49,16 @@ from fxt.research.store import code_version
 
 from .backtest import apply_sizer, simulate, trade_costs
 from .dataset import Dataset
-from .folds import make_folds, usable_mask, year_span
+from .folds import Fold, make_folds, usable_mask, year_span
 from .metrics import classifier_metrics, trading_metrics
 from .metrics import auc
 from .models import fold_predict, is_multiclass, model_inputs
 from .stats import deflated_sharpe, psr
 
-__all__ = ["EvalResult", "PREDICTION_COLUMNS", "evaluate"]
+__all__ = ["EvalResult", "PER_SYMBOL_METRICS", "PREDICTION_COLUMNS", "evaluate"]
+
+#! aggregate metrics also logged per symbol ("<SYMBOL>.<name>") in pooled runs
+PER_SYMBOL_METRICS = ("n_trades", "gross_bp", "cost_bp", "net_bp", "hit_rate", "sharpe_ann", "clf_auc", "dir_auc")
 
 PREDICTION_COLUMNS = ("event_id", "symbol", "t0", "t1", "fold", "test_year", "side", "outcome", "meta_label",
                       "sample_weight", "prob", "p_sl", "p_timeout", "score", "size", "ret", "cost", "gross",
@@ -78,8 +91,20 @@ def _metrics(pred: pl.DataFrame, prior: float, start: datetime, end: datetime, b
     return out
 
 
+def _pool(datasets: list[Dataset]) -> None:
+    """ Pooled datasets must come from the same configs, one per symbol. """
+    syms = [d.symbol for d in datasets]
+    if len(set(syms)) != len(syms):
+        raise ValueError(f"one dataset per symbol, got {syms}")
+    first = datasets[0]
+    for d in datasets[1:]:
+        for what in ("hashes", "strategy_id", "feature_names", "signed_names"):
+            if getattr(d, what) != getattr(first, what):
+                raise ValueError(f"pooled datasets differ in {what}: {first.symbol} vs {d.symbol}")
+
+
 def evaluate(
-    ds: Dataset,
+    ds: Dataset | list[Dataset] | tuple[Dataset, ...],
     *,
     model: ModelConfig,
     sizer: SizerConfig | None = None,
@@ -95,33 +120,53 @@ def evaluate(
     sizer = sizer or SizerConfig()
     backtest = backtest or BacktestConfig()
     cv = cv or WalkForwardConfig()
-    names = list(model.features) if getattr(model, "features", ()) else list(ds.feature_names)
-    unknown = set(names) - set(ds.feature_names)
+    datasets = sorted([ds] if isinstance(ds, Dataset) else list(ds), key=lambda d: d.symbol)
+    if not datasets:
+        raise ValueError("no datasets")
+    _pool(datasets)
+    ds0 = datasets[0]
+    symbols = [d.symbol for d in datasets]
+    names = list(model.features) if getattr(model, "features", ()) else list(ds0.feature_names)
+    unknown = set(names) - set(ds0.feature_names)
     if unknown:
         raise ValueError(f"model features not in the features config: {sorted(unknown)}")
 
-    clock = ds.bars.get_column("time").dt.epoch("s").to_numpy()
+    #! per symbol: lockbox cut, folds on its own clock, costs on its own quotes
     lock_start = datetime(cv.lockbox_year, 1, 1, tzinfo=UTC)
-    frame = ds.frame if lockbox else ds.frame.filter(pl.col("t0") < lock_start)     # dev runs never see the lockbox
-    folds = make_folds(frame, clock, cv, lockbox=lockbox)
-    first_used = frame.filter(pl.Series(usable_mask(frame, clock, cv))).get_column("t0").min()
+    frames, sym_folds, firsts = [], [], []
+    for d in datasets:
+        clock = d.bars.get_column("time").dt.epoch("s").to_numpy()
+        fr = d.frame if lockbox else d.frame.filter(pl.col("t0") < lock_start)    # dev runs never see the lockbox
+        sym_folds.append(make_folds(fr, clock, cv, lockbox=lockbox))
+        first = fr.filter(pl.Series(usable_mask(fr, clock, cv))).get_column("t0").min()
+        if first is not None:
+            firsts.append(first)
+        frames.append((d, fr))
+    folds = [Fold(index=parts[0].index, test_year=parts[0].test_year,
+                  train=np.concatenate([p.train for p in parts]), test=np.concatenate([p.test for p in parts]),
+                  purged=sum(p.purged for p in parts), embargoed=sum(p.embargoed for p in parts))
+             for parts in zip(*sym_folds, strict=True)]
+    first_used = min(firsts) if firsts else None
     test_end = year_span(folds[-1].test_year)[1]
 
-    configs = {**ds.hashes, "model": model.config_hash(), "sizer": sizer.config_hash(),
+    configs = {**ds0.hashes, "model": model.config_hash(), "sizer": sizer.config_hash(),
                "backtest": backtest.config_hash(), "cv": cv.config_hash()}
     run_id = None
     if registry is not None:
         for c in (model, sizer, backtest, cv):
             registry.register_config(c)
         run_id = registry.start_run(
-            ds.strategy_id, [ds.symbol], configs, cv_scheme=cv.scheme,
+            ds0.strategy_id, symbols, configs, cv_scheme=cv.scheme,
             data_start=first_used.date().isoformat() if first_used else "", data_end=test_end.date().isoformat(),
             is_lockbox=lockbox, git_commit=code_version(), notes=notes, purpose=purpose)
-        log(f"run {run_id}: {ds.strategy_id} / {model.label} / {sizer.label}")
+        log(f"run {run_id}: {ds0.strategy_id} {'+'.join(symbols)} / {model.label} / {sizer.label}")
 
     try:
-        costed = trade_costs(frame, ds.bars, backtest, ds.symbol)
-        X_all, _ = model_inputs(costed, names, ds.signed_names, getattr(model, "side_inputs", "none"))
+        costed = pl.concat([trade_costs(fr, d.bars, backtest, d.symbol) for d, fr in frames], how="vertical_relaxed")
+        X_all, _ = model_inputs(costed, names, ds0.signed_names, getattr(model, "side_inputs", "none"))
+        if len(symbols) > 1:                                  # symbol dummies (first symbol = baseline)
+            sym = costed.get_column("symbol").to_numpy()
+            X_all = np.column_stack([X_all, *[(sym == s).astype(float) for s in symbols[1:]]])
         y_all = costed.get_column("meta_label").to_numpy()
         multi = is_multiclass(model)
         y_fit = (costed.get_column("outcome").replace_strict({c: i for i, c in enumerate(OUTCOME_CLASSES)},
@@ -194,6 +239,16 @@ def evaluate(
                         "var_sr_trials": d.var_sr})
         agg["n_folds"] = float(len(folds))
         agg["folds_net_positive"] = float(sum(r.get("net_bp", 0) > 0 for r in fold_rows))
+        if len(symbols) > 1:
+            agg["n_symbols"] = float(len(symbols))
+            for s in symbols:
+                st = trades.filter(pl.col("symbol") == s)
+                sm = trading_metrics(st, year_span(folds[0].test_year)[0], test_end, backtest)
+                by_fold = [_metrics(st.filter(pl.col("fold") == r["fold"]), priors[r["fold"]],
+                                    *year_span(r["test_year"]), backtest) for r in fold_rows]
+                sm["clf_auc"] = _mean_finite([b.get("clf_auc") for b in by_fold])
+                sm["dir_auc"] = _mean_finite([b.get("dir_auc") for b in by_fold])
+                agg.update({f"{s}.{k}": sm[k] for k in PER_SYMBOL_METRICS if k in sm})
 
         if registry is not None and run_id is not None:
             for row in fold_rows:
@@ -201,18 +256,19 @@ def evaluate(
                                               if k not in ("fold", "test_year") and _finite(v)}, fold=row["fold"])
             registry.log_metrics(run_id, {k: v for k, v in agg.items() if _finite(v)})
             if research is not None:
-                out = research.root / "predictions" / f"run={run_id}" / f"{ds.symbol}.parquet"
-                out.parent.mkdir(parents=True, exist_ok=True)
-                tmp = out.with_suffix(f".tmp{os.getpid()}")
-                trades.write_parquet(tmp)
-                tmp.replace(out)
+                for s in symbols:
+                    out = research.root / "predictions" / f"run={run_id}" / f"{s}.parquet"
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    tmp = out.with_suffix(f".tmp{os.getpid()}")
+                    trades.filter(pl.col("symbol") == s).write_parquet(tmp)
+                    tmp.replace(out)
             registry.finish_run(run_id, "done")
     except BaseException:
         if registry is not None and run_id is not None:
             registry.finish_run(run_id, "failed")
         raise
 
-    return EvalResult(run_id=run_id, strategy_id=ds.strategy_id, folds=pl.DataFrame(fold_rows),
+    return EvalResult(run_id=run_id, strategy_id=ds0.strategy_id, folds=pl.DataFrame(fold_rows),
                       aggregate=agg, trades=trades, configs=configs)
 
 
@@ -224,6 +280,11 @@ def _dir_auc(pred: pl.DataFrame) -> float:
     if s.height == 0:
         return math.nan
     return auc((s.get_column("outcome") == "pt").to_numpy().astype(float), s.get_column("score").to_numpy())
+
+
+def _mean_finite(vals: list) -> float:
+    v = [x for x in vals if _finite(x)]
+    return float(np.mean(v)) if v else math.nan
 
 
 def _finite(v: Any) -> bool:

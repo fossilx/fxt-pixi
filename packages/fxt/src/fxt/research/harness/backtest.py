@@ -95,23 +95,26 @@ def apply_sizer(prob: np.ndarray, cfg: SizerConfig, prior: float | None = None, 
 def simulate(pred: pl.DataFrame, cfg: BacktestConfig) -> pl.DataFrame:
     """ pred (t0, t1, size, ret, cost, ...) sorted or not -> same rows sorted by t0, with
         `size` cut to the position cap and `gross` = size * ret, `net` = size * (ret - cost).
-        Rows with size 0 stay (not trades; gross = net = 0).
+        Rows with size 0 stay (not trades; gross = net = 0). The cap applies per symbol
+        (when there's a `symbol` column): exposure in one pair doesn't block another.
     """
-    pred = pred.sort("t0")
+    pred = pred.sort("t0", maintain_order=True)
     size = pred.get_column("size").to_numpy().astype(float).copy()
     if cfg.position_cap is not None:
         t0 = pred.get_column("t0").dt.epoch("us").to_numpy()
         t1 = pred.get_column("t1").dt.epoch("us").to_numpy()
-        open_: list[tuple[int, float]] = []
-        total = 0.0
+        syms = pred.get_column("symbol").to_list() if "symbol" in pred.columns else [""] * len(size)
+        open_: dict[str, list[tuple[int, float]]] = {}
+        total: dict[str, float] = {}
         for i in range(len(size)):
-            while open_ and open_[0][0] <= t0[i]:
-                total -= heapq.heappop(open_)[1]
-            s = min(size[i], max(cfg.position_cap - total, 0.0))
+            heap = open_.setdefault(syms[i], [])
+            while heap and heap[0][0] <= t0[i]:
+                total[syms[i]] -= heapq.heappop(heap)[1]
+            s = min(size[i], max(cfg.position_cap - total.get(syms[i], 0.0), 0.0))
             size[i] = s
             if s > 0:
-                heapq.heappush(open_, (int(t1[i]), s))
-                total += s
+                heapq.heappush(heap, (int(t1[i]), s))
+                total[syms[i]] = total.get(syms[i], 0.0) + s
     return pred.with_columns(
         pl.Series("size", size),
         (pl.Series(size) * pl.col("ret")).alias("gross"),

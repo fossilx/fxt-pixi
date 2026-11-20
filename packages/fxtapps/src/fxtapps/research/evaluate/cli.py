@@ -11,6 +11,7 @@
     pixi run evaluate EURJPY --side fade
     pixi run evaluate EURJPY --labels 3b896dab2027 --use ret_24h_z,vol_ratio_24h_120h
     pixi run evaluate EURJPY --features 816950fa181b              # baseline set only (default: all three sets)
+    pixi run evaluate EURJPY EURUSD USDJPY --model gbm3 --sizer expected_value   # pooled: one model, all pairs
     pixi run evaluate EURJPY --lockbox                        # ONE look per strategy, ever
 """
 from __future__ import annotations
@@ -45,7 +46,7 @@ def _fmt(fmt: str, v) -> str:
 
 
 @click.command(help=__doc__)
-@click.argument("symbol")
+@click.argument("symbols", nargs=-1, required=True)
 @click.option("--source", default="dukascopy", show_default=True)
 @click.option("--market", default="forex", show_default=True)
 @click.option("--labels", "labels_hash", help="labels config hash (default: --side on the default touches)")
@@ -72,7 +73,7 @@ def _fmt(fmt: str, v) -> str:
 @click.option("--cap", type=float, default=None, help="position cap (total open size)")
 @click.option("--lockbox", is_flag=True, help="evaluate on the lockbox year (one look per strategy)")
 @click.option("--notes", default=None)
-def main(symbol, source, market, labels_hash, side, weights_hash, features_hashes, model, calibration, use_features, l2,
+def main(symbols, source, market, labels_hash, side, weights_hash, features_hashes, model, calibration, use_features, l2,
          side_inputs, sample_weight, sizer, threshold, slippage, commission, cap, lockbox, notes) -> None:
     if labels_hash is None:
         th = TripleBarrierTouchConfig(events_hash=CusumEventsConfig().config_hash()).config_hash()
@@ -98,17 +99,17 @@ def main(symbol, source, market, labels_hash, side, weights_hash, features_hashe
         raise SystemExit(1)
     try:
         research = get_research()
-        ds = load_dataset(research, get_lake(), labels_hash=labels_hash, source=source, market=market,
-                          symbol=symbol, weights_hash=weights_hash,
-                          features_hashes=features_hashes or None)
+        dss = [load_dataset(research, get_lake(), labels_hash=labels_hash, source=source, market=market,
+                            symbol=s, weights_hash=weights_hash, features_hashes=features_hashes or None)
+               for s in dict.fromkeys(symbols)]
         with get_registry() as reg:
-            res = evaluate(ds, model=mcfg, sizer=scfg, backtest=bcfg, cv=cv, lockbox=lockbox, registry=reg,
+            res = evaluate(dss, model=mcfg, sizer=scfg, backtest=bcfg, cv=cv, lockbox=lockbox, registry=reg,
                            research=research, notes=notes, log=lambda m: console.print(f"[dim]{m}[/]"))
-            trials = reg.trial_count(ds.strategy_id)
+            trials = reg.trial_count(dss[0].strategy_id)
     except (InputDatasetError, InputBarsError, LockboxAlreadyUsed, ValueError) as e:
         raise click.ClickException(str(e)) from e
 
-    t = Table(title=f"{symbol} {res.strategy_id} / {mcfg.label} / {scfg.label}  run {res.run_id}",
+    t = Table(title=f"{'+'.join(sorted(set(symbols)))} {res.strategy_id} / {mcfg.label} / {scfg.label}  run {res.run_id}",
               title_justify="left")
     for _, head, _ in FOLD_COLUMNS:
         t.add_column(head, justify="right")
@@ -125,6 +126,16 @@ def main(symbol, source, market, labels_hash, side, weights_hash, features_hashe
     console.print(f"PSR (P[Sharpe > 0]): {_fmt('{:.3f}', a.get('psr'))}   "
                   f"DSR (vs best of {a.get('n_trials', 0):.0f} trials): {_fmt('{:.3f}', a.get('dsr'))}   "
                   f"trials for {res.strategy_id}: {trials}")
+    if a.get("n_symbols", 1) > 1:
+        p = Table(title="per symbol (all folds)", title_justify="left")
+        for h in ("symbol", "trades", "gross bp", "cost bp", "net bp", "hit", "sharpe", "auc", "dir auc"):
+            p.add_column(h, justify="right")
+        for s in sorted(set(symbols)):
+            g = lambda k, s=s: a.get(f"{s}.{k}")
+            p.add_row(s, _fmt("{:,.0f}", g("n_trades")), _fmt("{:+.2f}", g("gross_bp")), _fmt("{:.2f}", g("cost_bp")),
+                      _fmt("{:+.2f}", g("net_bp")), _fmt("{:.1%}", g("hit_rate")), _fmt("{:+.2f}", g("sharpe_ann")),
+                      _fmt("{:.3f}", g("clf_auc")), _fmt("{:.3f}", g("dir_auc")))
+        console.print(p)
 
 
 if __name__ == "__main__":

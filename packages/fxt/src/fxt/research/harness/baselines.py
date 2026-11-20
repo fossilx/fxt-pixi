@@ -8,6 +8,7 @@ information, same frequency, same barriers, same costs" looks like.
 
     base = random_baseline(research, lake, registry, like_labels="3b896dab2027",
                            source="dukascopy", market="forex", symbol="EURJPY", seeds=range(20))
+    base = random_baseline(..., symbol=["EURJPY", "EURUSD", "USDJPY"], ...)    # pooled, like a pooled run
     base.runs                         one row per seed: hashes, run_id, aggregate metrics
     compare(base, registry, run_id)   where a candidate run falls in that distribution
 
@@ -25,6 +26,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+
+import json
 
 import polars as pl
 
@@ -71,11 +74,11 @@ def _built(research: Research, stage: Stage, config_hash: str, keys: dict) -> bo
     return bool(research.scan(stage, config=config_hash, **keys))
 
 
-def _find_control(reg: Registry, configs: dict[str, str]) -> str | None:
-    """ A finished control run that used exactly these configs. """
-    for (run_id,) in reg.con.execute(
-            "SELECT run_id FROM runs WHERE purpose = 'control' AND status = 'done' ORDER BY started_at"):
-        if reg.run_configs(run_id) == configs:
+def _find_control(reg: Registry, configs: dict[str, str], symbols: list[str]) -> str | None:
+    """ A finished control run on exactly these symbols that used exactly these configs. """
+    for run_id, syms in reg.con.execute(
+            "SELECT run_id, symbols FROM runs WHERE purpose = 'control' AND status = 'done' ORDER BY started_at"):
+        if sorted(json.loads(syms)) == sorted(symbols) and reg.run_configs(run_id) == configs:
             return run_id
     return None
 
@@ -88,7 +91,7 @@ def random_baseline(
     like_labels: str,
     source: str,
     market: str,
-    symbol: str,
+    symbol: str | list[str] | tuple[str, ...],
     seeds: Iterable[int],
     fire_prob: float = 0.0935,
     features_hashes: str | tuple[str, ...] | None = None,
@@ -96,8 +99,11 @@ def random_baseline(
     cv: WalkForwardConfig | None = None,
     log: Callable[[str], None] = _quiet,
 ) -> RandomBaseline:
-    """ Random-entry runs matching the candidate labels' touch and side-label configs. """
-    keys = {"source": source, "market": market, "symbol": symbol}
+    """ Random-entry runs matching the candidate labels' touch and side-label configs.
+        Several symbols: each seed builds every symbol's chain and is evaluated pooled.
+    """
+    symbols = sorted([symbol] if isinstance(symbol, str) else list(symbol))
+    keys = {"source": source, "market": market, "symbol": symbols[0]}
     backtest = backtest or BacktestConfig()
     cv = cv or WalkForwardConfig()
     model = TakeAllModelConfig()
@@ -115,22 +121,25 @@ def random_baseline(
         hashes = {"events": ev.config_hash(), "touches": tc.config_hash(), "labels": lc.config_hash(),
                   "weights": wc.config_hash()}
         log(f"seed {seed}: events {hashes['events']}  touches {hashes['touches']}  labels {hashes['labels']}")
-        if not _built(research, Stage.EVENTS, hashes["events"], keys):
-            build_events(ev, **keys, lake=lake, research=research)
-        if not _built(research, Stage.TOUCHES, hashes["touches"], keys):
-            build_touches(tc, **keys, lake=lake, research=research)        # type: ignore[arg-type]
-        if not _built(research, Stage.LABELS, hashes["labels"], keys):
-            build_labels(lc, **keys, research=research)
-        if not _built(research, Stage.WEIGHTS, hashes["weights"], keys):
-            build_weights(wc, **keys, lake=lake, research=research)
-
-        ds = load_dataset(research, lake, labels_hash=hashes["labels"], features_hashes=features_hashes, **keys)
-        configs = {**ds.hashes, "model": model.config_hash(), "sizer": SizerConfig().config_hash(),
+        dss = []
+        for sym in symbols:
+            k = {**keys, "symbol": sym}
+            if not _built(research, Stage.EVENTS, hashes["events"], k):
+                build_events(ev, **k, lake=lake, research=research)
+            if not _built(research, Stage.TOUCHES, hashes["touches"], k):
+                build_touches(tc, **k, lake=lake, research=research)       # type: ignore[arg-type]
+            if not _built(research, Stage.LABELS, hashes["labels"], k):
+                build_labels(lc, **k, research=research)
+            if not _built(research, Stage.WEIGHTS, hashes["weights"], k):
+                build_weights(wc, **k, lake=lake, research=research)
+            dss.append(load_dataset(research, lake, labels_hash=hashes["labels"], features_hashes=features_hashes,
+                                    **k))
+        configs = {**dss[0].hashes, "model": model.config_hash(), "sizer": SizerConfig().config_hash(),
                    "backtest": backtest.config_hash(), "cv": cv.config_hash()}
-        run_id = _find_control(reg, configs)
+        run_id = _find_control(reg, configs, symbols)
         reused = run_id is not None
         if run_id is None:
-            res = evaluate(ds, model=model, backtest=backtest, cv=cv, registry=reg, research=research,
+            res = evaluate(dss, model=model, backtest=backtest, cv=cv, registry=reg, research=research,
                            purpose="control", notes=f"random-entry baseline like labels={like_labels}")
             run_id = res.run_id
         got = {r["name"]: r["value"] for r in reg.metrics(run_id).filter(pl.col("fold").is_null()).iter_rows(named=True)}
