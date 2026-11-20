@@ -8,6 +8,8 @@ nothing, so a report is not a new trial (spec §9.6).
     pred = load_predictions(research, run_id)
     by = breakdown(pred, backtest)            # one row per (symbol, test_year), plus "all" rows
     save_breakdown(registry, run_id, by)      # per-fold metrics "<SYMBOL>.<metric>" in the registry
+    trades_hash(pred, labels_hash, backtest_hash)   # what a run traded: identical trades = one trial
+    backfill_trades_hashes(registry, research)      # for runs recorded before trades_hash existed
 '''
 #=================================================================================(80)
 #
@@ -16,6 +18,7 @@ nothing, so a report is not a new trial (spec §9.6).
 #=================================================================================(80)
 from __future__ import annotations
 
+import hashlib
 import math
 
 import polars as pl
@@ -27,7 +30,8 @@ from fxt.research.registry import Registry
 from .folds import year_span
 from .metrics import auc, trading_metrics
 
-__all__ = ["BREAKDOWN_METRICS", "breakdown", "load_predictions", "save_breakdown"]
+__all__ = ["BREAKDOWN_METRICS", "backfill_trades_hashes", "breakdown", "load_predictions", "save_breakdown",
+           "trades_hash"]
 
 BREAKDOWN_METRICS = ("n_events", "n_trades", "gross_bp", "cost_bp", "net_bp", "hit_rate", "sharpe_ann", "dir_auc")
 
@@ -74,6 +78,41 @@ def breakdown(pred: pl.DataFrame, backtest: BacktestConfig | None = None) -> pl.
         total["dir_auc"] = sum(per_year) / len(per_year) if per_year else math.nan
         rows.append(total)
     return pl.DataFrame(rows)
+
+
+def trades_hash(pred: pl.DataFrame, labels_hash: str, backtest_hash: str) -> str:
+    """ 16-hex hash of what a run traded: the labels config (events, barriers, side rule),
+        the backtest config (costs, cap) and every (event_id, size) with size > 0. Two runs
+        with the same hash made identical trades with identical results, so for multiple
+        testing they're one trial (spec §9.6).
+    """
+    t = (pred.filter(pl.col("size") > 0).select("event_id", pl.col("size").round(9))
+             .sort("event_id"))
+    h = hashlib.sha256(f"{labels_hash}|{backtest_hash}|".encode())
+    for eid, size in t.iter_rows():
+        h.update(f"{eid}:{size!r};".encode())
+    return h.hexdigest()[:16]
+
+
+def backfill_trades_hashes(reg: Registry, research: Research) -> dict[str, str]:
+    """ trades_hash for finished runs that don't have one, from their predictions on disk.
+        Runs without predictions (or without a labels / backtest config) are left alone and
+        keep counting as one trial each. Returns {run_id: hash} for the runs filled in.
+    """
+    out = {}
+    for (run_id,) in reg.con.execute(
+            "SELECT run_id FROM runs WHERE status = 'done' AND trades_hash IS NULL ORDER BY started_at").fetchall():
+        cfg = reg.run_configs(run_id)
+        if "labels" not in cfg or "backtest" not in cfg:
+            continue
+        try:
+            pred = load_predictions(research, run_id)
+        except FileNotFoundError:
+            continue
+        h = trades_hash(pred, cfg["labels"], cfg["backtest"])
+        reg.set_trades_hash(run_id, h)
+        out[run_id] = h
+    return out
 
 
 def save_breakdown(reg: Registry, run_id: str, by: pl.DataFrame) -> int:

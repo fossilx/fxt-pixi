@@ -10,7 +10,8 @@ Two halves:
 - runs / run_configs / metrics: one row per evaluation through the harness.
   These exist nowhere else, which is why the registry lives outside
   data/research and must never be deleted with research outputs. Every trial
-  run counts (failed and abandoned ones too) for the deflated Sharpe; baselines are
+  run counts (failed and abandoned ones too) for the deflated Sharpe, except that
+  runs making exactly the same trades (runs.trades_hash) count once; baselines are
   recorded with purpose="control" and don't count.
 
     with Registry("data/experiments.db") as reg:
@@ -46,7 +47,7 @@ from .paths import Research, Stage
 
 __all__ = ["LockboxAlreadyUsed", "Registry", "RunPurpose", "SCHEMA_VERSION", "SyncReport"]
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 RunPurpose = Literal["trial", "control"]
 RunStatus = Literal["running", "done", "failed", "abandoned"]
 
@@ -91,7 +92,8 @@ CREATE TABLE IF NOT EXISTS runs (           -- one evaluation through the harnes
     notes         TEXT,
     started_at    TEXT NOT NULL,
     finished_at   TEXT,
-    purpose       TEXT NOT NULL DEFAULT 'trial'   -- trial (counts toward multiple testing) or control (a baseline)
+    purpose       TEXT NOT NULL DEFAULT 'trial',  -- trial (counts toward multiple testing) or control (a baseline)
+    trades_hash   TEXT                            -- hash of the trades the run made: identical trades = one trial
 );
 CREATE TABLE IF NOT EXISTS run_configs (    -- every config a run used, by role
     run_id        TEXT NOT NULL REFERENCES runs,
@@ -147,10 +149,11 @@ class Registry:
         if version > SCHEMA_VERSION:
             raise RuntimeError(f"{self.path} has schema v{version}; this code knows v{SCHEMA_VERSION}")
         self.con.executescript(_SCHEMA)
-        if version == 1:                                  # v1 -> v2: runs.purpose
-            cols = {r["name"] for r in self.con.execute("PRAGMA table_info(runs)")}
-            if "purpose" not in cols:
-                self.con.execute("ALTER TABLE runs ADD COLUMN purpose TEXT NOT NULL DEFAULT 'trial'")
+        cols = {r["name"] for r in self.con.execute("PRAGMA table_info(runs)")}
+        if 0 < version < 2 and "purpose" not in cols:                # v1 -> v2: runs.purpose
+            self.con.execute("ALTER TABLE runs ADD COLUMN purpose TEXT NOT NULL DEFAULT 'trial'")
+        if 0 < version < 3 and "trades_hash" not in cols:            # v2 -> v3: runs.trades_hash
+            self.con.execute("ALTER TABLE runs ADD COLUMN trades_hash TEXT")
         self.con.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
     def close(self) -> None:
@@ -310,21 +313,37 @@ class Registry:
     #~======================================================================(70)
     #~ queries
     #~----------------------------------------------------------------------(70)
-    def trial_count(self, strategy_id: str | None = None, *, include_lockbox: bool = False) -> int:
-        """ Every trial run counts, failed and abandoned included (spec §9.6); controls don't. """
-        sql = "SELECT COUNT(*) FROM runs WHERE purpose = 'trial' AND (? IS NULL OR strategy_id = ?)"
+    def set_trades_hash(self, run_id: str, trades_hash: str) -> None:
+        """ Record what the run traded (see fxt.research.harness.trades_hash). """
+        if self.con.execute("UPDATE runs SET trades_hash = ? WHERE run_id = ?", (trades_hash, run_id)).rowcount == 0:
+            raise KeyError(f"no run {run_id}")
+
+    def trial_count(self, strategy_id: str | None = None, *, include_lockbox: bool = False,
+                    distinct: bool = True) -> int:
+        """ Trials for multiple testing (spec §9.6): every trial run counts, failed and abandoned
+            included; controls don't. distinct=True (default): runs that made exactly the same
+            trades (same trades_hash) count once; runs without a hash (failed, or recorded before
+            v3 and not backfilled) count one each. distinct=False: every run.
+        """
+        what = "COUNT(DISTINCT COALESCE(trades_hash, run_id))" if distinct else "COUNT(*)"
+        sql = f"SELECT {what} FROM runs WHERE purpose = 'trial' AND (? IS NULL OR strategy_id = ?)"
         if not include_lockbox:
             sql += " AND is_lockbox = 0"
         return self.con.execute(sql, (strategy_id, strategy_id)).fetchone()[0]
 
-    def trial_metric(self, name: str, *, exclude_run: str | None = None) -> list[float]:
+    def trial_metric(self, name: str, *, exclude_run: str | None = None,
+                     exclude_trades: str | None = None) -> list[float]:
         """ The aggregate value of metric `name` for every finished trial (not lockbox, not
-            control), e.g. every trial's daily Sharpe for the deflated Sharpe ratio.
+            control), one value per distinct trade set, e.g. every trial's daily Sharpe for the
+            deflated Sharpe ratio. exclude_run / exclude_trades leave out a run and any run that
+            made the same trades.
         """
         rows = self.con.execute("""
-            SELECT m.value FROM metrics m JOIN runs r USING (run_id)
+            SELECT MIN(m.value) FROM metrics m JOIN runs r USING (run_id)
             WHERE m.name = ? AND m.fold IS NULL AND r.purpose = 'trial' AND r.is_lockbox = 0
-              AND r.status = 'done' AND r.run_id IS NOT ?""", (name, exclude_run)).fetchall()
+              AND r.status = 'done' AND r.run_id IS NOT ?
+              AND (r.trades_hash IS NULL OR r.trades_hash IS NOT ?)
+            GROUP BY COALESCE(r.trades_hash, r.run_id)""", (name, exclude_run, exclude_trades)).fetchall()
         return [r[0] for r in rows]
 
     def query(self, sql: str, params: tuple | dict = ()) -> pl.DataFrame:

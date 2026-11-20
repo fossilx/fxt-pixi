@@ -133,7 +133,8 @@ def test_migrates_v1(tmp_path):
         r.con.execute("ALTER TABLE runs DROP COLUMN purpose")
         r.con.execute("PRAGMA user_version=1")
     with Registry(p) as r:
-        assert r.con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 2
+        assert r.con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 3
+        assert "trades_hash" in r.runs().columns
         assert r.runs().row(0, named=True)["purpose"] == "trial"
         assert r.trial_count() == 1 and r.runs()["run_id"].to_list() == [run]
         start(r, purpose="control")                                       # new rows work
@@ -172,9 +173,10 @@ def test_evaluate_records_dsr_and_controls(tmp_path):
         b = evaluate(ds, model=LogisticModelConfig(), sizer=SizerConfig(rule="threshold"), cv=CV, registry=r)
         assert b.aggregate["n_trials"] == 2                               # the control didn't count
         assert b.aggregate["sr0_daily"] > 0 and b.aggregate["dsr"] < b.aggregate["psr"]
-        #! identical trades -> identical Sharpe -> nothing to deflate by
+        #! a logistic model that takes every trade trades exactly like take_all: no new trial
         same = evaluate(ds, model=LogisticModelConfig(), cv=CV, registry=r)
-        assert same.aggregate["n_trials"] == 3
+        assert same.aggregate["n_trials"] == 2
+        assert r.trial_count(distinct=False) == 3
 
 
 #!================================================================================(80)

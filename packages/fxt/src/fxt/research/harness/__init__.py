@@ -16,11 +16,13 @@ from .models import (
     fit_logistic, is_multiclass, fit_predict, fold_predict, isotonic_fit,
     model_inputs, sigmoid,
 )
-from .report import BREAKDOWN_METRICS, breakdown, load_predictions, save_breakdown
+from .report import (
+    BREAKDOWN_METRICS, backfill_trades_hashes, breakdown, load_predictions, save_breakdown, trades_hash,
+)
 from .stats import DeflatedSharpe, deflated_sharpe, expected_max_sharpe, moments, psr
 
 __all__ = [
-    "BREAKDOWN_METRICS", "breakdown", "load_predictions", "save_breakdown",
+    "BREAKDOWN_METRICS", "backfill_trades_hashes", "breakdown", "load_predictions", "save_breakdown", "trades_hash",
     "BASELINE_METRICS", "RandomBaseline", "compare", "random_baseline",
     "MissingQuoteError", "apply_sizer", "simulate", "trade_costs",
     "Dataset", "InputDatasetError", "default_features", "load_dataset",

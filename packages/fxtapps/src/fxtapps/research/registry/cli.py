@@ -4,6 +4,7 @@
     pixi run registry show               # summary: configs per stage, artifacts, runs
     pixi run registry runs [STRATEGY]    # runs with status and trial counts
     pixi run registry run RUN_ID         # one run: configs used, metrics
+    pixi run registry backfill           # trades_hash for runs recorded before it existed (from predictions)
 """
 from __future__ import annotations
 
@@ -99,6 +100,7 @@ def runs(strategy: str | None, controls: bool, wide: bool) -> None:
         if not controls:
             df = df.filter(pl.col("purpose") != "control")
         trials = reg.trial_count(strategy)
+        trial_runs = reg.trial_count(strategy, distinct=False)
         rows = []
         for r in df.iter_rows(named=True):
             cfgs = reg.run_configs(r["run_id"])
@@ -109,7 +111,8 @@ def runs(strategy: str | None, controls: bool, wide: bool) -> None:
     if not rows:
         console.print("no runs")
         return
-    t = Table(title=f"runs ({trials} trial(s) excl. lockbox; controls don't count)", title_justify="left")
+    t = Table(title=f"runs: {trials} distinct trial(s) from {trial_runs} trial run(s), excl. lockbox; "
+                    "controls don't count", title_justify="left")
     spec = [("run_id", "run_id", None), ("strategy_id", "strategy", None), ("model", "model", None),
             ("sizer", "sizer", None), ("kind", "kind", None), ("n_trades", "trades", "{:,.0f}"),
             ("net_bp", "net bp", "{:+.2f}"), ("sharpe_ann", "sharpe", "{:+.2f}"), ("psr", "psr", "{:.3f}"),
@@ -177,7 +180,20 @@ def _dsr_now(reg, run_id: str, info: dict, mets: pl.DataFrame):
         return None
     return deflated_sharpe(agg["sharpe_daily"], int(agg["n_days"]), agg["skew_daily"], agg["kurt_daily"],
                            reg.trial_count(include_lockbox=True),
-                           [*reg.trial_metric("sharpe_daily", exclude_run=run_id), agg["sharpe_daily"]])
+                           [*reg.trial_metric("sharpe_daily", exclude_run=run_id,
+                                              exclude_trades=info.get("trades_hash")), agg["sharpe_daily"]])
+
+
+@main.command()
+def backfill() -> None:
+    """ Fill in trades_hash for finished runs that lack one, from their predictions files. """
+    from fxt.research.harness import backfill_trades_hashes
+    with get_registry() as reg:
+        filled = backfill_trades_hashes(reg, get_research())
+        trials, runs_ = reg.trial_count(), reg.trial_count(distinct=False)
+    for run_id, h in filled.items():
+        console.print(f"{run_id}  {h}")
+    console.print(f"filled {len(filled)} run(s); {trials} distinct trial(s) from {runs_} trial run(s)")
 
 
 if __name__ == "__main__":

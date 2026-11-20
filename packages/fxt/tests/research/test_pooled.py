@@ -144,3 +144,52 @@ def test_breakdown_matches_run_and_saves(pair, tmp_path):
         assert m.filter((pl.col("fold") == 1) & (pl.col("name") == "BBBUSD.n_events"))["value"].item() == fold1["n_events"]
         with pytest.raises(FileNotFoundError):
             load_predictions(rs, "nope")
+
+
+#!================================================================================(80)
+#! identical trades = one trial
+#!--------------------------------------------------------------------------------(80)
+def test_trades_hash():
+    from fxt.research.harness import trades_hash
+    p = pl.DataFrame({"event_id": ["b", "a", "c"], "size": [1.0, 1.0, 0.0]})
+    h = trades_hash(p, "L" * 12, "B" * 12)
+    assert h == trades_hash(p.reverse(), "L" * 12, "B" * 12)                       # order doesn't matter
+    assert h == trades_hash(p.filter(pl.col("size") > 0), "L" * 12, "B" * 12)     # untaken rows don't matter
+    assert h != trades_hash(p, "M" * 12, "B" * 12)                                 # other labels (e.g. fade)
+    assert h != trades_hash(p, "L" * 12, "C" * 12)                                 # other costs
+    assert h != trades_hash(p.with_columns(pl.lit(0.5).alias("size")), "L" * 12, "B" * 12)
+
+
+def test_duplicate_runs_count_once(pair, tmp_path):
+    a, _ = pair
+    with Registry(tmp_path / "x.db") as reg:
+        r1 = evaluate(a, model=TakeAllModelConfig(), cv=CV, registry=reg)
+        r2 = evaluate(a, model=LogisticModelConfig(), cv=CV, registry=reg)          # takes every trade too
+        r3 = evaluate(a, model=LogisticModelConfig(), sizer=SizerConfig(rule="threshold"), cv=CV, registry=reg)
+        runs = reg.runs()
+        hashes = dict(zip(runs["run_id"], runs["trades_hash"], strict=True))
+        assert hashes[r1.run_id] == hashes[r2.run_id] != hashes[r3.run_id]
+        assert reg.trial_count() == 2 and reg.trial_count(distinct=False) == 3
+        assert len(reg.trial_metric("sharpe_daily")) == 2
+        assert r2.aggregate["n_trials"] == 1 and r3.aggregate["n_trials"] == 2
+        #! a failed run has no hash and still counts
+        bad = reg.start_run("synth_follow", ["AAAJPY"], {"labels": "x" * 12}, cv_scheme="w", data_start="",
+                            data_end="")
+        reg.finish_run(bad, "failed")
+        assert reg.trial_count() == 3
+
+
+def test_backfill_trades_hashes(pair, tmp_path):
+    from fxt.research.harness import backfill_trades_hashes
+    a, _ = pair
+    rs = Research(root=tmp_path / "research")
+    with Registry(tmp_path / "x.db") as reg:
+        r1 = evaluate(a, model=TakeAllModelConfig(), cv=CV, registry=reg, research=rs)
+        r2 = evaluate(a, model=LogisticModelConfig(), cv=CV, registry=reg, research=rs)
+        h = reg.runs()["trades_hash"].to_list()
+        reg.con.execute("UPDATE runs SET trades_hash = NULL")                        # as if recorded before v3
+        assert reg.trial_count() == 2
+        filled = backfill_trades_hashes(reg, rs)
+        assert set(filled) == {r1.run_id, r2.run_id} and list(filled.values()) == h
+        assert reg.trial_count() == 1
+        assert backfill_trades_hashes(reg, rs) == {}                                   # idempotent

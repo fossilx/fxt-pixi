@@ -53,6 +53,7 @@ from .folds import Fold, make_folds, usable_mask, year_span
 from .metrics import classifier_metrics, trading_metrics
 from .metrics import auc
 from .models import fold_predict, is_multiclass, model_inputs
+from .report import trades_hash
 from .stats import deflated_sharpe, psr
 
 __all__ = ["EvalResult", "PER_SYMBOL_METRICS", "PREDICTION_COLUMNS", "evaluate"]
@@ -229,12 +230,16 @@ def evaluate(
         fold_dir = [r["dir_auc"] for r in fold_rows if _finite(r["dir_auc"])]
         agg["dir_auc"] = float(np.mean(fold_dir)) if fold_dir else math.nan
         agg.update(trading_metrics(trades, year_span(folds[0].test_year)[0], test_end, backtest))
-        #! deflated Sharpe: against the best daily Sharpe expected from this many skill-less trials
+        #! deflated Sharpe: against the best daily Sharpe expected from this many skill-less trials;
+        #! a run that trades exactly like an earlier one adds no trial (same trades_hash)
         sr, sk, ku, nd = (agg.get(k, math.nan) for k in ("sharpe_daily", "skew_daily", "kurt_daily", "n_days"))
         agg["psr"] = psr(sr, int(nd) if _finite(nd) else 0, sk, ku)
+        th = trades_hash(trades, configs["labels"], configs["backtest"])
+        if registry is not None and run_id is not None:
+            registry.set_trades_hash(run_id, th)
         if registry is not None and purpose == "trial":
             d = deflated_sharpe(sr, int(nd), sk, ku, registry.trial_count(include_lockbox=True),
-                                [*registry.trial_metric("sharpe_daily", exclude_run=run_id), sr])
+                                [*registry.trial_metric("sharpe_daily", exclude_run=run_id, exclude_trades=th), sr])
             agg.update({"dsr": d.dsr, "sr0_daily": d.sr0, "n_trials": float(d.n_trials),
                         "var_sr_trials": d.var_sr})
         agg["n_folds"] = float(len(folds))
