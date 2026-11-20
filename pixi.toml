@@ -117,6 +117,7 @@ getch = ">=1.0, <2"
 fxt = { path = "./packages/fxt", editable = true }
 #apps = { path = "./apps", editable = true }
 fxtapps = { path = "./packages/fxtapps", editable = true }
+vectorbt = { version = ">=1.2.1, <2", extras = ["full", "rust"] }
 
 [dependencies]
 #re: core

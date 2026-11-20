@@ -156,14 +156,20 @@ class YearRangeType(click.ParamType):
             2020..2024
         - list of years:
             2020,2021,2022,2023
-        
+        - special cases that pass through:
+            ALL|all
     """
     name = "year_range"
+    PASS_THROUGH_VALUES:list = ["all"]  # noqa: RUF012
 
     def convert(self, value, param, ctx):
-        # If it's already a list (e.g., passed via python code directly)
-        if isinstance(value, list):
+        #! case: already a list; e.g., passed via python code directly
+        if(isinstance(value, list)):
             return value
+        #! case: special case "ALL"
+        if(str(value).lower() in self.PASS_THROUGH_VALUES):
+            #make sure to return it as a list as the validation class will handle it's value
+            return [value]
 
         years = set()
         # Support splitting by comma to allow multiple ranges or single years (e.g., "2018,2020-2022")
@@ -267,7 +273,7 @@ class ParamValidator(BaseModel):
         if(key is None):
             key = pick_fuzzy(
                 "Pick a SOURCE:",
-                [k for k in SourceRegistry if isinstance(k, str)]
+                [k for k in SourceRegistry if isinstance(k, str) and k != "fake"]
             )
 
         #! if it gets here, key must be set
@@ -560,7 +566,7 @@ from rich.panel import Panel
 @click.option("--market",   "-m", default=None)
 @click.option("--symbol",   "-i", default=None, help="Ticker symbol for the target instrument, e.g. GBP/USD.")
 @click.option("--interval", "-t", default=None, help="Time interval, e.g. TICK, 1MIN.")
-@click.option("--years",    "-y", default=None, type=YEAR_RANGE, help="Accepts a single year: 2024, a range: 2020-2024 or 2020..2024 (i think), or a list: 2020,2023,2024")
+@click.option("--years",    "-y", default=None, type=YEAR_RANGE, help="Accepts a single year: 2024, a range: 2020-2024 or 2020..2024 (i think), or a list: 2020,2023,2024, or: ALL")
 #@click.option("--symbol",   "-i", default=None, help="Ticker symbol for the target instrument, e.g. GBP/USD. Prompted if omitted.")
 
 #@click.option("--market",   "-m", default=None, show_default=True)

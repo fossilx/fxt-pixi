@@ -12,6 +12,12 @@ markers = [
     "slow: walks the real lake / long-running",
 ]
 
+[tool.pyright]
+extraPaths = ["packages/fxt/src", "packages/fxtapps/src"]
+venvPath = ".pixi/envs"
+venv = "default"
+
+
 
 
 [tool.ruff]
