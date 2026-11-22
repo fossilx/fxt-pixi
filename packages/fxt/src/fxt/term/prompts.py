@@ -149,6 +149,7 @@ def pick_fuzzy(
         *, #rest are kwargs for FuzzyPrompt
         max_height:str|None = "70%", 
         match_exact:bool = False,
+        multiselect:bool=False,
         **kwargs
     ) -> str:
     """ Displays a prompt where you can type in part of the name of the selection 
@@ -189,6 +190,7 @@ def pick_fuzzy(
         choices=list(choices),
         max_height=max_height,
         match_exact=match_exact,
+        multiselect=multiselect,
         **kwargs
     ).execute()
 #

@@ -533,23 +533,7 @@ def check_args(
     rtn.output_dir = output_dir
 
     return rtn
-
-
-
-
-    # class ConsolidatorParams:
-    # #downloader:BaseDownloader
-    # source:BaseDownloader|None #not sure wtf i want yet
-    # market:BaseMarket|None
-    # symbol:str
-    # interval:str
-    # years:list[int]
-    # #optional
-    # downloads_dir:Path
-    # output_dir:Path
-    #output_manifest
 #
-
 
 
 #!================================================================================(80)

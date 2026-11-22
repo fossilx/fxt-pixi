@@ -24,6 +24,11 @@ moves on. Pause stops after the current file; Run then resumes with the marked
 files the batch hasn't processed yet. Moving the cursor over a processed file
 shows its last check results.
 
+When there's a "done" notion (out_path or is_done), the "hide done" switch
+(key: d) drops finished files from the list so only work still to do shows;
+Ctrl+A then marks just those. Marked files stay marked while hidden, as with
+search. Files finished mid-batch drop out when the batch ends.
+
 `root` must sit inside the lake (raw/ or derived/, optionally deeper); its
 hive parts become scan() filters automatically.
 
@@ -216,7 +221,10 @@ class LakePicker(App):
     #checks   { height: 1fr; }
     #summary  { height: auto; padding: 0 1; }
     #log      { height: 9; margin-top: 1; border: round $panel; }
-    #count    { color: $text-muted; padding: 0 1; }
+    #filterbar { height: auto; }
+    #filterbar Label { padding: 1 1; color: $text-muted; }
+    #count    { width: 1fr; color: $text-muted; padding: 0 1; }
+    #filterbar #count { padding: 1 1; }
     """
     BINDINGS = [
         Binding("ctrl+f", "focus_search", "Search"),
@@ -226,11 +234,12 @@ class LakePicker(App):
         Binding("ctrl+r", "run_selected", "Run"),
         Binding("ctrl+v", "verify_selected", "Verify"),
         Binding("p", "pause", "Pause"),          # ctrl+p is the command palette
+        Binding("d", "toggle_hide_done", "Hide done"),
         Binding("escape", "clear", "Clear search"),
         Binding("q", "quit", "Quit"),
     ]
     # keys that mean something else while typing in the search box
-    TYPING_KEYS = {"quit", "toggle_mark", "mark_all", "pause"}
+    TYPING_KEYS = {"quit", "toggle_mark", "mark_all", "pause", "toggle_hide_done"}
 
     def __init__(self,
         root: Path,
@@ -262,6 +271,7 @@ class LakePicker(App):
         if is_done is None and out_path is not None:
             is_done = lambda k: out_path(k).exists()
         self.is_done = is_done
+        self.hide_done = False                    # list filter: drop files is_done() says are built
         self.title = title or action_label
 
         laketype, root_filters = scan_args(lake, root)
@@ -294,7 +304,13 @@ class LakePicker(App):
         with Horizontal():
             with Vertical(id="left"):
                 yield Input(placeholder="e.g.  eurgbp 2014", id="search")
-                yield Static(id="count")
+                if self.is_done:
+                    with Horizontal(id="filterbar"):
+                        yield Static(id="count")
+                        yield Switch(value=self.hide_done, id="hidedone")
+                        yield Label("hide done")
+                else:
+                    yield Static(id="count")
                 yield DataTable(id="results", cursor_type="row", zebra_stripes=True)
             with Vertical(id="sidebar"):
                 with VerticalScroll(id="selscroll"):
@@ -355,20 +371,29 @@ class LakePicker(App):
     def refresh_results(self, query: str) -> None:
         table = self.query_one("#results", DataTable)
         here = self._cursor_entry()
-        self.results = search(self.entries, query)
+        found = search(self.entries, query)
+        # is_done may hit the disk: ask once per matching file, reuse for filter + ✓ column
+        done = {e.path for e in found if self.is_done(e.key)} if self.is_done else set()
+        if self.hide_done:
+            self.results = [e for e in found if e.path not in done]
+        else:
+            self.results = found
         table.clear()
         for e in self.results:
             row: list[str | Text] = [self._mark_text(e)]
             row += [str(getattr(e.key, k)) for k in PARTITION_KEYS] + [e.path.name]
             if self.is_done:
-                row.append("✓" if self.is_done(e.key) else "")
+                row.append("✓" if e.path in done else "")
             row.append(self._outcome_of(e))
             table.add_row(*row, key=str(e.path))
         if here is not None:                      # keep the cursor on the same file
             idx = next((i for i, e in enumerate(self.results) if e.path == here.path), None)
             if idx is not None:
                 table.move_cursor(row=idx)
-        self.query_one("#count", Static).update(f"{len(self.results)} / {len(self.entries)} files")
+        count = f"{len(self.results)} / {len(self.entries)} files"
+        if self.is_done:
+            count += f"  ·  {len(done)} done" + (" (hidden)" if self.hide_done and done else "")
+        self.query_one("#count", Static).update(count)
         self._update_buttons()
 
     def _cursor_entry(self) -> Entry | None:
@@ -420,6 +445,16 @@ class LakePicker(App):
     def _row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         if not self.busy:                         # while running, the panel follows the worker
             self._show_report_for(Path(event.row_key.value))
+
+    @on(Switch.Changed, "#hidedone")
+    def _hide_done_changed(self, event: Switch.Changed) -> None:
+        self.hide_done = event.value
+        self.refresh_results(self.query_one(Input).value)
+
+    def action_toggle_hide_done(self) -> None:
+        if self.is_done:                          # flipping the switch fires Switch.Changed
+            sw = self.query_one("#hidedone", Switch)
+            sw.value = not sw.value
 
     def action_toggle_mark(self) -> None:
         e = self._cursor_entry()
@@ -798,6 +833,8 @@ class LakePicker(App):
         # False lets the key through (and hides the binding in the footer)
         if action in self.TYPING_KEYS and isinstance(self.focused, Input):
             return False
+        if action == "toggle_hide_done" and not self.is_done:
+            return False                          # no "done" notion: no switch, no binding
         return True
 
     def on_descendant_focus(self) -> None:
