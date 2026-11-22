@@ -309,6 +309,7 @@ class ParamValidator(BaseModel):
     help="Root input/downloads directory"
 )
 @click.option("--auto/--no-auto", default=False)
+@click.option("--dry/--no-dry", default=False)
 def cli(
         source,
         market,
@@ -317,7 +318,8 @@ def cli(
         start:datetime|None,
         end:datetime|None,
         dl:str|None,
-        auto:bool
+        auto:bool,
+        dry:bool
     ):
     """ Downloads daily files using a downloader specific to the specified broker/source.
     """
@@ -343,6 +345,14 @@ def cli(
         f"{pformat(args, indent=4)}",
         title="[cyan bold]params from CLICK[/]", title_align="left"
     ))
+    
+    from fxt.core.geo import home_geo
+    from rich.pretty import Pretty
+    print(Panel(
+            Pretty(home_geo()),
+            title="[cyan bold]networking[/]", title_align="left"
+        ))
+
     if(not auto): pause()
 
     #------------------------------------------------------------(60)
@@ -381,7 +391,7 @@ def cli(
             )
             if(not auto): pause()
 
-            app.run(auto=auto, dry=False)
+            app.run(auto=auto, dry=dry)
     #
 
     except KeyboardInterrupt:

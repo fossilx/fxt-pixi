@@ -567,8 +567,20 @@ from rich.panel import Panel
     default=None,
     help="Root dir for the consolidated output. Generated files are then put in a symbol subdir."
 )
+@click.option("--auto/--no-auto", default=False)
+@click.option("--dry/--no-dry", default=False)
 @click.pass_context
-def cli(ctx:click.Context, source, market, symbol, interval, years, dl, con):
+def cli(ctx:click.Context, 
+    source, 
+    market, 
+    symbol, 
+    interval,
+    years, 
+    dl, 
+    con,
+    auto:bool,
+    dry:bool
+):
     """
     """
     args = {
@@ -612,8 +624,9 @@ def cli(ctx:click.Context, source, market, symbol, interval, years, dl, con):
             downloads_dir=params.downloads_dir, #type: ignore
             consolidated_dir=params.consolidated_dir   #type: ignore
         )
-        pause()
-        app.run(dry=False)
+        if(not auto): pause()
+        
+        app.run(dry=dry)
 
     except KeyboardInterrupt:
         print("[orchid2]KeyboardInterrupt[/]: Operation canceled.")

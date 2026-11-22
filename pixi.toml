@@ -102,8 +102,14 @@ args = ["pkg"]
 cmd = "python scripts/zip/zip-dir.py packages/{{ pkg }}"
 description = "Zip packages/<pkg> to dist/<pkg>.zip"
 
+[tasks.dl-proxy]
+args = [{ arg = "port", default = "8001" }]
+cmd = "HTTPS_PROXY=http://127.0.0.1:{{ port }} HTTP_PROXY=http://127.0.0.1:{{ port }} python -m fxtapps.dataprep.downloader.cli"
 
-
+[tasks.test-proxy]
+args = [{ arg = "port", default = "8001" }]
+cmd = "HTTPS_PROXY=http://127.0.0.1:{{ port }} HTTP_PROXY=http://127.0.0.1:{{ port }} python ./scripts/getip.py"
+description = "Run with a signle arg corresponding to the proxy port! so: pixi run test-proxy 8003"
 
 
 [activation]

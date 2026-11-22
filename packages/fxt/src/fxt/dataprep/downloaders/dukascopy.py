@@ -154,7 +154,6 @@ class DukascopyDownloader(BaseDownloader[DukascopySource]):
             return (df, meta)
         #
 
-
         #------------------------------------------------------------(60)
         
         #! stop here if dry run
@@ -172,6 +171,7 @@ class DukascopyDownloader(BaseDownloader[DukascopySource]):
                 start=start,
                 end=end,
                 max_retries=self.max_retries, #max retries, None = unlimited
+
                 #debug=dp_logging
             )
         except Exception as e:

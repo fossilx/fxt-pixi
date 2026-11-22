@@ -1,6 +1,54 @@
 
 repo: https://github.com/fossilx/fxt-pixi/tree/main
 
+
+need to download:
+
+# HOST
+```sh
+pixi run dl -b dukascopy -m forex -t TICK -s 2013-01-01 -e 2025-01-01 --auto \
+--symbol USD/CAD \
+--symbol USD/CHF
+```
+
+# PROXY 1
+```sh
+pixi run dl-proxy 8001 -- -b dukascopy -m forex -t TICK -s 2013-01-01 -e 2025-01-01 --auto \
+--symbol EUR/CAD \
+--symbol AUD/CAD
+```
+
+# PROXY 2
+```sh
+pixi run dl-proxy 8002 -- -b dukascopy -m forex -t TICK -s 2013-01-01 -e 2025-01-01 --auto \
+--symbol AUD/CHF \
+--symbol AUD/NZD \
+--symbol CHF/JPY
+```
+
+
+# PROXY 3
+
+```sh
+pixi run dl-proxy 8002 -- -b dukascopy -m forex -t TICK -s 2013-01-01 -e 2025-01-01 --auto \
+--symbol NZD/CHF \
+--symbol NZD/CAD
+```
+
+
+--symbol AUD/CHF \
+--symbol AUD/CAD \
+--symbol AUD/NZD
+
+
+--symbol EUR/CAD
+
+pixi run dl -b dukascopy -m forex -t TICK -s 2013-01-01 -e 2025-01-01 
+--symbol USD/CAD \
+--symbol USD/CHF \
+--symbol EUR/CAD
+
+
 ---
 
 # paths:
