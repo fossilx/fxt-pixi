@@ -183,6 +183,9 @@ def show_settings(
         (settings, "settings", False),
         (secrets, "secrets", True),
     ):
+        title_color:str = ""
+        tree_top:str = ""
+
         if(str(title).lower() == "settings"):
             title_color = _SETTING_COLORS[0]
             tree_top = _SETTING_COLORS[1]

@@ -42,6 +42,9 @@ import fnmatch
 import json
 import os
 import re
+import shutil
+import subprocess
+import sys
 import tomllib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -62,6 +65,7 @@ from textual.screen import ModalScreen
 from textual.timer import Timer
 from textual.widget import Widget
 from textual.widgets import (
+    Button,
     ContentSwitcher,
     DataTable,
     DirectoryTree,
@@ -250,6 +254,72 @@ def section(title: str, body: Widget) -> Widget:
     body.add_class("section")
     body.border_title = title
     return body
+
+
+def system_copy(text: str) -> str | None:
+    """Copy via the desktop's clipboard tool. Returns the tool used, or None.
+
+    Textual's own copy_to_clipboard uses the OSC 52 escape code, which some
+    terminals ignore (or only allow after a setting), so this is the reliable path
+    on a local desktop.
+    """
+    commands: list[tuple[str, ...]] = []
+    if os.environ.get("WAYLAND_DISPLAY"):
+        commands.append(("wl-copy",))
+    if os.environ.get("DISPLAY"):
+        commands += [("xclip", "-selection", "clipboard"), ("xsel", "--clipboard", "--input")]
+    if sys.platform == "darwin":
+        commands.append(("pbcopy",))
+    for cmd in commands:
+        if not shutil.which(cmd[0]):
+            continue
+        try:
+            # DEVNULL matters: wl-copy/xclip leave a child running to serve the
+            # clipboard, and a piped stdout would make run() wait on it.
+            subprocess.run(
+                cmd, input=text.encode(), check=True, timeout=3,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            return cmd[0]
+        except (OSError, subprocess.SubprocessError):
+            continue
+    return None
+
+
+class CopyableSection(Vertical):
+    """A titled section box with a Copy button that copies `copy_text`."""
+
+    DEFAULT_CSS = """
+    CopyableSection { height: auto; }
+    CopyableSection > .copy-bar { height: 1; align-horizontal: right; }
+    CopyableSection Button.copy {
+        height: 1; min-width: 8; padding: 0 1; border: none;
+    }
+    """
+
+    def __init__(self, title: str, body: Widget, copy_text: str) -> None:
+        super().__init__(
+            Horizontal(Button("Copy", classes="copy", compact=True), classes="copy-bar"),
+            body,
+            classes="section",
+        )
+        self.border_title = title
+        self.copy_text = copy_text
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        event.stop()
+        app = self.app
+        app.copy_to_clipboard(self.copy_text)  # OSC 52: also works over SSH
+        via = system_copy(self.copy_text)
+        what = self.border_title or "section"
+        if via:
+            app.notify(f"Copied {what}", timeout=2)
+        else:
+            app.notify(
+                f"Sent {what} to the terminal clipboard. If paste is empty, install "
+                "wl-clipboard (Wayland) or xclip (X11).",
+                timeout=5,
+            )
 
 
 class RowsTable(DataTable):
@@ -446,7 +516,8 @@ class ParquetPreview(BasePreview):
         from_column = self.json_from_columns()
         if from_column:
             title, pretty = from_column
-            out.append(section(title, Static(Syntax(pretty, "json", line_numbers=True))))
+            body = Static(Syntax(pretty, "json", line_numbers=True))
+            out.append(CopyableSection(title, body, pretty))
 
         # Unconfigured, metadata_entries guesses one JSON key; skip that guess if a
         # data column already supplied the JSON section.
@@ -457,7 +528,7 @@ class ParquetPreview(BasePreview):
                     Syntax(text, lexer, line_numbers=True, word_wrap=True)
                     if lexer == "json" else Text(text)
                 )
-                out.append(section(title, Static(body)))
+                out.append(CopyableSection(title, Static(body), text))
         return out
 
     def rows_section(self) -> Widget:
@@ -1007,5 +1078,3 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     FileBrowserApp(args.root, metadata_keys=args.meta_key).run()
-
-

@@ -7,9 +7,10 @@ root = "data/"
 meta_keys = ["fxt-data:type", "fxt-data*"]
 
 [location]
-root = "/home/tony/cloud/.rclone-sync/code/python/.jupyter-pixi/data"
-file = "lake/derived/source=dukascopy/market=forex/symbol=EURGBP/interval=1MIN/year=2013/EURGBP-2013.parquet"
+root = "/home/tony/cloud/.rclone-sync/code/python/.fxt-pixi/data"
+file = "dataprep/downloads/dukascopy/forex/AUDCAD/TICK/2013/01/AUDCAD-2013-01-01.parquet"
 
 [bookmarks]
 "/home/tony/cloud/.rclone-sync/code/python/.jupyter-pixi/data/lake/derived/source=dukascopy/market=forex/symbol=EURGBP/interval=1MIN/year=2013/EURGBP-2013.parquet" = "1MIN-EURGBP-2013"
 "/home/tony/cloud/.rclone-sync/code/python/.jupyter-pixi/data/lake/derived/source=dukascopy/market=forex/symbol=EURGBP/interval=1HOUR/year=2013/EURGBP-2013.parquet" = "1HOUR-EURGBP-2013"
+"/home/tony/cloud/.rclone-sync/code/python/.fxt-pixi/data/lake/raw/source=dukascopy/market=forex/symbol=AUDCAD/interval=TICK/year=2013/AUDCAD-2013.parquet" = "raw-example"
